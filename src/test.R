@@ -37,6 +37,20 @@ bucket <- get_bucket(bucket="xstream-capstone")
 # 2. Download all '/data' files in the bucket
 read_all_csvs(bucket, "data")
 
+# Display SHAP Values =====================================
 
 
+### I. Display Data ---------------------
+# clean the primary 'display' data
+display_df <- enriched_altIP %>% select(-`...1`, -`Unnamed: 0`)
+# remove extraneous df's
+remove(enriched_altIP, CleanEnrichedData)
 
+### II. Normalize SHAP values
+normalize_SHAP <- function(scores, SHAP_df){
+  print(mean(scores))
+  print(SHAP_df$baseline[1])
+  assertthat::are_equal(mean(scores), SHAP_df$baseline[1], tol=0.01)
+}
+
+### III. Assign identifier to all rows of data
