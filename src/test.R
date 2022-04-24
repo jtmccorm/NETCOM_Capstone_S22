@@ -1,6 +1,7 @@
 library(aws.s3)
 library(aws.signature)
 library(tidyverse)
+library(plotly)
 
 # AWS ================================================
 # TODO: Must be changed based on NETCOM's access keys
@@ -37,20 +38,67 @@ bucket <- get_bucket(bucket="xstream-capstone")
 # 2. Download all '/data' files in the bucket
 read_all_csvs(bucket, "data")
 
-# Display SHAP Values =====================================
-
-
-### I. Display Data ---------------------
+### I. Clean Raw Data for Display -----------------------------------
 # clean the primary 'display' data
 display_df <- enriched_altIP %>% select(-`...1`, -`Unnamed: 0`)
 # remove extraneous df's
 remove(enriched_altIP, CleanEnrichedData)
 
-### II. Normalize SHAP values
+### II. Normalize SHAP values------------------------
 normalize_SHAP <- function(scores, SHAP_df){
-  print(mean(scores))
-  print(SHAP_df$baseline[1])
-  assertthat::are_equal(mean(scores), SHAP_df$baseline[1], tol=0.01)
+  assertthat::are_equal(mean(scores), SHAP_df$baseline[1], tol=0.0001)
+  stn_dev <- sd(scores)
+  
+  SHAP_df %>%
+    mutate(across(.cols=everything(),
+                  .fns= ~ (.x/stn_dev))) %>%
+    select(-baseline)
 }
 
+# apply to four algorithms
+SHAPiforest <- normalize_SHAP(EnrichedScoreData$iforest_scores, SHAPiforest)
+SHAPlof <- normalize_SHAP(EnrichedScoreData$lof_scores, SHAPlof)
+SHAPxstream <- normalize_SHAP(EnrichedScoreData$xstream_scores, SHAPxstream)
+SHAPocsvm <- normalize_SHAP(EnrichedScoreData$ocsvm_scores, SHAPocsvm)
+
+# remove unneeded df
+remove(EnrichedScoreData)
+
 ### III. Assign identifier to all rows of data
+SHAPiforest['INDICATOR'] <- display_df['INDICATOR']
+SHAPxstream['INDICATOR'] <- display_df['INDICATOR']
+SHAPlof['INDICATOR']     <- display_df['INDICATOR']
+SHAPocsvm['INDICATOR']   <- display_df['INDICATOR']
+
+# Display Data ==============================================
+
+# helper fxn for the shapley plots
+shap_plot <- function(SHAP_df, ind_select){
+  SHAP_df <- SHAP_df %>%
+              dplyr::filter(INDICATOR == ind_select) %>%
+              dplyr::select(-INDICATOR)
+  
+  p <- SHAP_df %>%
+    pivot_longer(cols = everything(), 
+             names_to = "variable", 
+            values_to = "shap_value") %>%
+    arrange(desc(abs(shap_value))) %>% head(20) %>%
+    ggplot(aes(y = fct_reorder(variable, abs(shap_value)), 
+               x = shap_value, 
+            fill = shap_value>0)) +
+      geom_vline(xintercept = 0, lty=2) +
+      geom_col() +
+      scale_fill_manual(values = c('#3384E5', '#F62E56')) +
+      labs(y="Top Features",
+           x="SHAP Values") + 
+      theme_classic() + theme(legend.position = "none") 
+  
+  return(p)
+}
+
+# extract specific observation and shap scores
+weights <- rep(0.5, 606)
+shap_vals <- SHAPiforest %>% dplyr::select(-INDICATOR) %>% .[1,] %>% as.numeric()
+weights %*% shap_vals # specific scores
+
+names(rep(1, 607)) <- names(SHAPiforest)
