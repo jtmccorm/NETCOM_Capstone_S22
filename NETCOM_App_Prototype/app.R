@@ -103,33 +103,37 @@ feature_panel <- function(model_title){
     condition = str_c("input.model == '", model_title,"'"),
     h4(str_c(model_title, ": Feature Weights"), align = 'center'),
     
+    # create first column of sliders
     column(width=6,
-           chooseSliderSkin("Flat", color = "#2E3440"),
            lapply(feat_1, function(feat) {
-             sliderInput(inputId = str_c(model_title,"_",feat),
+             sliderInput(inputId = str_c(model_title, "_", feat),
                          label = feat,
                          min = 0, max = 1.5, value = 1,
                          step = 0.25, ticks=F)
            })),
+    # create second column of sliders
     column(width=6,
-           chooseSliderSkin("Flat", color = "#2E3440"),
            lapply(feat_2, function(feat) {
-             sliderInput(inputId = str_c(model_title,"_",feat),
+             sliderInput(inputId = str_c(model_title, "_", feat),
                          label = feat,
                          min = 0, max = 1.5, value = 1,
                          step = 0.25, ticks=F)
-           })
-    )
+           })),
+
+    
   )
 }
 
-model_switch <- function(model, status){
+model_switch <- function(model, status, icon){
   # creates shinyWidget::materialSwitch for models
-  materialSwitch(
-    inputId = str_c(model, "_include"),
-    label = model, 
-    value = TRUE,
-    status = status)
+  fluidRow(
+    icon(icon, lib = "glyphicon"),
+    materialSwitch(
+      inputId = str_c(model, "_include"),
+      label = model, 
+      value = TRUE,
+      status = status)
+  )
 }
 
 eda_ui <- function(width){
@@ -236,7 +240,8 @@ body <- dashboardBody(use_theme(my_theme),
                       box(width =12,
                           h4(strong("Feature Significance"), align='center'), 
                           tabBox(width=12,
-                             tabPanel("iForest"),
+                             tabPanel(title = p(icon("tree-conifer", lib="glyphicon"), 
+                                        "iForest")),
                              tabPanel('xStream')
                                 )
                           ),
@@ -272,11 +277,11 @@ body <- dashboardBody(use_theme(my_theme),
                             fluidRow(
                               column(width=2),
                               column(width = 4, 
-                                     model_switch("iForest","success"),
-                                     model_switch("xStream","danger")),
+                                     model_switch("iForest","success", "tree-conifer"),
+                                     model_switch("xStream","danger", "random")),
                               column(width = 4,
-                                     model_switch("LOF", "info"),
-                                     model_switch("OCSVM", "warning")),
+                                     model_switch("LOF", "info", "sunglasses"),
+                                     model_switch("OCSVM", "warning", "dashboard")),
                               column(width=2)
                             ),
                             ##### ii. Model Selection -------
@@ -301,7 +306,12 @@ body <- dashboardBody(use_theme(my_theme),
                             feature_panel('iForest'),
                             feature_panel('xStream'),
                             feature_panel('LOF'),
-                            feature_panel('OCSVM')
+                            feature_panel('OCSVM'),
+                            setSliderColor(color = c(rep("#00A65A", 18), 
+                                                     rep("#DD4B39", 18), 
+                                                     rep("#00C0EF", 18), 
+                                                     rep("#F39C12", 18)),
+                                          sliderId = c(1:72))
                           )
                           )
                     )
