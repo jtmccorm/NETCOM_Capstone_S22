@@ -64,6 +64,15 @@ read_all_csvs(bucket, "data")
 ### I. Create 'Display' Dataset ------------------
 # clean the primary 'display' data
 display_df <- enriched_altIP %>% select(-`...1`, -`Unnamed: 0`)
+
+# get a list of numeric/ small categoricals
+display_feats <- c('iForest', 'xStream', 'lof',
+                   'ocsvm','ensemble','virus_total_mal_count',
+                   'virus_total_sus_count','VT_SCORE','count',
+                   'unique_IP_count','CERT_COUNT','CERT_VALID_DAYS',
+                   'NUM_ACTIVE_CERTS','NUM_EXPIRED_CERTS',
+                   'CERT_AUTHORITY','WHOIS_CC','WHOIS_DOMAIN_AGE')
+
 #TODO  remove extraneous df's
 # remove(enriched_altIP, CleanEnrichedData)
 
@@ -154,10 +163,25 @@ eda_ui <- function(width){
   column(width = width,
          fluidRow(
            # Inputs
-           box(width=4, selectInput("plotType",
-                                    "Distribution to Explore",
-                                    choices = c("Univariate", "Bivariate"),
-                                    selected = "Univariate"),
+           box(width=4,
+               # Plot type
+               selectInput("plotType",
+                           "Distribution to Explore",
+                           choices = c("Univariate", "Bivariate"),
+                           selected = "Univariate"),
+               # X Variable Selector
+               selectInput("feat_x",
+                           "Selected Feature (x)",
+                           choices = display_feats,
+                           selected = "CERT_AUTHORITY"),
+               # Y Variable Selector
+               conditionalPanel(
+                 condition = "input.plotType == 'Bivariate'",
+                 selectInput("feat_y",
+                             "Selected Feature (y)",
+                             choices = display_feats,
+                             selected = "ensemble")
+               )
            ),
            # Explanation
            box(width=8, 
@@ -166,9 +190,9 @@ eda_ui <- function(width){
          ),
          # Plot 
          fluidRow(
-           box(width = 12,
-               h4(strong("Some Plot"), align='center')),
-               textOutput("iForest_sum"))
+                 box(width = 12,
+                     h4(strong("Explore the Data"), align='center'),
+                     plotlyOutput("eda_plot", height = "650px")))
   )
 }
 
@@ -271,7 +295,7 @@ sidebar <-dashboardSidebar(
               onStatus = "success", 
               offStatus = "danger",
               labelWidth = "100px"
-              )
+            )
           )
         )
       )
@@ -582,6 +606,39 @@ server <- function(input, output) {
   output$SHAP_ocsvm <- renderPlotly({
     shap_plotly(rwtd_SHAPocsvm(), select_ind())
   })
+  
+  output$eda_plot <- renderPlotly({
+    # manipulate the data to only plottable features
+    this <- main_df() %>%
+          select(c(display_feats, INDICATOR)) %>%
+          mutate(CERT_AUTHORITY = factor(str_wrap(CERT_AUTHORITY, 5)),
+                 WHOIS_CC = factor(str_wrap(str_replace(WHOIS_CC,",.*$",""), 5)))
+  
+    
+    if (input$plotType == "Univariate"){
+      # if Univariate continuous produce histogram
+      if (input$feat_x %in% c("CERT_AUTHORITY", "WHOIS_CC")){
+        p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
+                                        text = "INDICATOR")) +
+          geom_histogram(stat='count', fill = "#434C5E") + theme_bw()
+      } else {
+        p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
+                                 text = "INDICATOR")) +
+            geom_histogram(fill = "#434C5E") + theme_bw()
+      }
+    } else{
+      # if bivariate produce jitter
+      p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
+                                      y = str_c("`",input$feat_y,"`"), 
+                                      text = "INDICATOR")) +
+            geom_jitter(color = "#434C5E") + theme_bw()
+    }
+    
+    # turn into plotly
+    ggplotly(p, tooltip = 'text') %>%
+      config(displayModeBar = FALSE) 
+  })
+  
 }
 
 # Run the application 
