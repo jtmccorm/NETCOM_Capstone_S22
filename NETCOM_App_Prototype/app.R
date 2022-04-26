@@ -119,7 +119,7 @@ feature_panel <- function(model_title){
                          min = 0, max = 1.5, value = 1,
                          step = 0.25, ticks=F)
            })),
-
+    
     
   )
 }
@@ -154,7 +154,8 @@ eda_ui <- function(width){
          # Plot 
          fluidRow(
            box(width = 12,
-               h4(strong("Some Plot"), align='center')))
+               h4(strong("Some Plot"), align='center')),
+               textOutput("iForest_sum"))
   )
 }
 
@@ -241,9 +242,15 @@ body <- dashboardBody(use_theme(my_theme),
                           h4(strong("Feature Significance"), align='center'), 
                           tabBox(width=12,
                              tabPanel(title = p(icon("tree-conifer", lib="glyphicon"), 
-                                        "iForest")),
-                             tabPanel('xStream')
+                                        "iForest"),
+                                      plotlyOutput("SHAP_iForest",
+                                                   height = "500px")),
+                             tabPanel(title = p(icon("random", lib="glyphicon"),
+                                                'xStream'),
+                                      plotlyOutput("SHAP_xStream",
+                                                   height = "500px")
                                 )
+                            )
                           ),
                       #### c. Action buttons --------------------------
                       box(width=12, align = 'center',
@@ -337,8 +344,97 @@ ui <- dashboardPage(header, sidebar, body,
                     title = "NETCOM-DSD: Anomaly Detection")
 
 # 2. Server ===============================================
+
+## A. Helper Fxns -----------------------------------------
+feat_weights <- function(model_title, input){
+  
+  # function to extract feature weights from slider Inputs in Model Controls
+    feat_dict <- dplyr::select(SHAPiforest, -INDICATOR) %>%
+         names() %>% 
+         str_remove_all(., "__.*$") %>% tibble(var = factor(.)) %>%
+         count(var)
+    
+    feat_names <- feat_dict$var %>% as.character()
+    feat_count <- feat_dict$n
+    
+    this <- lapply(1:18, function(i){
+      rep(input[[str_c(model_title, "_", feat_names[i])]], feat_count[i])
+    })
+    
+    return(unlist(this))
+}
+
+reweight_SHAP <- function(SHAP_df, feat_weights){
+  # function to produce a re-weighted SHAP data.frame
+  rwtd_SHAP_df <- dplyr::select(SHAP_df, -INDICATOR) * feat_weights
+  rwtd_SHAP_df['INDICATOR'] <- SHAP_df['INDICATOR']
+  return(rwtd_SHAP_df)
+}
+
+shap_plotly <- function(SHAP_df, ind_select){
+  SHAP_df <- SHAP_df %>%
+    dplyr::filter(INDICATOR == ind_select) %>%
+    dplyr::select(-INDICATOR)
+  
+  value <- SHAP_df %>% rowSums()
+  
+  p <- SHAP_df %>%
+    pivot_longer(cols = everything(), 
+                 names_to = "variable", 
+                 values_to = "shap_value") %>%
+    arrange(desc(abs(shap_value))) %>% head(15) %>%
+    ggplot(aes(y = fct_reorder(variable, abs(shap_value)), 
+               x = shap_value, 
+               fill = factor(sign(shap_value)))) +
+    geom_vline(xintercept = 0, lty=2) +
+    geom_col() +
+    scale_fill_manual(values = c("-1"='#3384E5', "1"='#F62E56')) +
+    scale_y_discrete(labels = function(x) {
+        x %>% str_replace_all(., "_", " ") %>%
+              str_replace(., "  ", ": ") %>%
+              str_wrap(., width=30)
+      }) +
+    xlim(-0.25, 0.75) +
+    labs(y="",
+         x="SHAP Values") + 
+    theme_classic(base_size = 10) + 
+    theme(legend.position = "none",
+          plot.title = element_text(hjust=-1)) 
+  
+  ggplotly(p, tooltip = 'x') %>%
+    layout(title = list(text = str_c("<b>",ind_select,": ",round(value, 4),"</b>")),
+                        font = list(size = 10))
+}
+
+## B. Main Fxn --------------------------------------------
 server <- function(input, output) {
-  # EDA User Interface updates
+  ### I. Data Reactive -------------------
+  #### a. Re-weighted SHAP df's ----------
+  rwtd_SHAPiForest <- reactive({
+    reweight_SHAP(SHAPiforest,
+                  feat_weights("iForest", input))
+  })
+  
+  rwtd_SHAPxStream <- reactive({
+    reweight_SHAP(SHAPxstream,
+                  feat_weights("xStream", input))
+  })
+  
+  rwtd_SHAPlof <- reactive({
+    reweight_SHAP(SHAPlof,
+                  feat_weights("LOF", input))
+  })
+  
+  rwtd_SHAPocsvm <- reactive({
+    reweight_SHAP(SHAPocsvm,
+                  feat_weights("OCSVM", input))
+  })
+  
+  #### b. Main 'Display' DataFrame ----------
+  
+  
+  ### II. UI Outputs ---------------------
+  #### a. Dynamic UI Structure ----------
   output$eda_ui <- renderUI({
     if (input$dev_access){
       eda_ui(7)
@@ -347,16 +443,36 @@ server <- function(input, output) {
     }
   })
   
+  #### b. Developer Access ---------------
+  # Are the credentials correct?
   dev_cred <- eventReactive(input$dev_cred,{
     input$user == "slartibartfast" & input$password == "42"
   })
   
+  # If so, update the text.
   output$dev_display <- renderText({
     if (dev_cred()){
       "Access Granted!"
     } else{
       "Access Denied."
     }
+  })
+  
+  #### c. Plots ------------------
+  output$SHAP_iForest <- renderPlotly({
+    shap_plotly(rwtd_SHAPiForest(), "starlinkinvest.com")
+  })
+  
+  output$SHAP_xStream <- renderPlotly({
+    shap_plotly(rwtd_SHAPxStream(), "starlinkinvest.com")
+  })
+  
+  output$SHAP_lof <- renderPlotly({
+    shap_plotly(rwtd_SHAPlof(), "starlinkinvest.com")
+  })
+  
+  output$SHAP_ocsvm <- renderPlotly({
+    shap_plotly(rwtd_SHAPocsvm(), "starlinkinvest.com")
   })
 }
 
