@@ -88,7 +88,7 @@ print('Data Prep Complete')
 
 ## A. Helper Fxns -----------------------------------------------------
 
-feature_panel <- function(model_title){
+feature_panel <- function(model_title, color){
   # Function to procedurally generate inputs for each model
   # first pull all feature names
   feat_names <- dplyr::select(SHAPiforest, -INDICATOR) %>%
@@ -102,7 +102,20 @@ feature_panel <- function(model_title){
   conditionalPanel(
     condition = str_c("input.model == '", model_title,"'"),
     h4(str_c(model_title, ": Feature Weights"), align = 'center'),
-    
+    fluidRow(align = 'center',
+    actionBttn(str_c(model_title,"_rwt"),
+               icon = icon("code", lib = "font-awesome"),
+               label = "Calculate Scores",
+               color = color,
+               size = 'sm',
+               style = 'unite'),
+    actionBttn(str_c(model_title, "_reset"),
+               icon = icon("retweet", lib = "font-awesome"),
+               label = "Reset Weights",
+               color = color,
+               size = 'sm',
+               style = 'unite')
+    ),
     # create first column of sliders
     column(width=6,
            lapply(feat_1, function(feat) {
@@ -156,6 +169,47 @@ eda_ui <- function(width){
            box(width = 12,
                h4(strong("Some Plot"), align='center')),
                textOutput("iForest_sum"))
+  )
+}
+
+anomaly_exp <- function(){
+  # SHAP plots
+  box(width =12,
+      h4(strong("Anomaly Explanation"), align='center'), 
+      p("The SHAP plots below display the 15 most significant features for each of the models used to score this observation.", strong("Feature Significance "),"in shapley calculations is determined in comparison to the average/ baseline of each feature."),
+      tabBox(width=12,
+             tabPanel(title = p(icon("tree-conifer", lib="glyphicon"), 
+                                "iForest"),
+                      plotlyOutput("SHAP_iForest",
+                                   height = "500px")),
+             tabPanel(title = p(icon("random", lib="glyphicon"),
+                                'xStream'),
+                      plotlyOutput("SHAP_xStream",
+                                   height = "500px")),
+             tabPanel(title = p(icon("sunglasses", lib="glyphicon"),
+                                'LOF'),
+                      plotlyOutput("SHAP_lof",
+                                   height = "500px")),
+             tabPanel(title = p(icon("dashboard", lib="glyphicon"),
+                                'OCSVM'),
+                      plotlyOutput("SHAP_ocsvm",
+                                   height = "500px"))
+             )
+      )
+      
+}
+
+action_btns <- function(){
+  # Action buttons
+  box(width = 12, align ='center',
+      h4(strong("Mark for Future Action")),
+      p("If this observation seems suspicious you can mark it for future investigation. If it appears insignificant, you can dismiss it.", align='left'),
+      actionBttn('mark', label="Investigate",
+                    style = "unite",
+                    color = 'danger'),
+      actionBttn('ignore', label="Ignore",
+                    style = "unite",
+                    color = 'royal')
   )
 }
 
@@ -233,38 +287,31 @@ body <- dashboardBody(use_theme(my_theme),
                     #### a. Ranked Anomaly Table -------------
                     column(width =7,
                            box(width=12,
-                               h4(strong("Ranked Anomalies"), align='center'))
+                               tags$head(tags$style(HTML( 
+                                 ".dataTables_scrollBody {
+    transform:rotateX(180deg);
+}
+.dataTables_scrollBody table {
+    transform:rotateX(180deg);
+}
+   "
+                               ))),
+                               h4(strong("Ranked Anomalies"), align='center'),
+                               DT::dataTableOutput("main_dt",
+                                                   height = "500px"))
                     ),
                     column(width=5,
-                     
-                      #### b. SHAP plots -----------------------
-                      box(width =12,
-                          h4(strong("Feature Significance"), align='center'), 
-                          tabBox(width=12,
-                             tabPanel(title = p(icon("tree-conifer", lib="glyphicon"), 
-                                        "iForest"),
-                                      plotlyOutput("SHAP_iForest",
-                                                   height = "500px")),
-                             tabPanel(title = p(icon("random", lib="glyphicon"),
-                                                'xStream'),
-                                      plotlyOutput("SHAP_xStream",
-                                                   height = "500px")
-                                )
-                            )
-                          ),
-                      #### c. Action buttons --------------------------
-                      box(width=12, align = 'center',
-                          h4(strong("Action Steps"), align ='center'),
-                          p("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."),
-                          actionBttn('mark', label="Investigate",
-                                     style = "unite",
-                                     color = 'danger'),
-                          actionBttn('ignore', label="Ignore",
-                                     style = "unite",
-                                     color = 'warning')
+                           box(width=12, align = 'center',
+                               #### b. How to Use -------------
+                               h4(strong("How To Use"), align ='center'),
+                               p("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")),
+                           #### c. Take Action ------
+                           uiOutput("mark_btns"),
+                           #### d. SHAP plots ------
+                           uiOutput("anomaly_exp")
                           )
                         )
-                      )
+                      
                     ),
           ### II. Model Evaluation -------------------------------------
           tabItem("eval",
@@ -310,10 +357,10 @@ body <- dashboardBody(use_theme(my_theme),
                                           inline=TRUE)
                               ),
                           ##### iii. Feature Weight Selection ----
-                            feature_panel('iForest'),
-                            feature_panel('xStream'),
-                            feature_panel('LOF'),
-                            feature_panel('OCSVM'),
+                            feature_panel('iForest', "success"),
+                            feature_panel('xStream', "danger"),
+                            feature_panel('LOF', "primary"),
+                            feature_panel('OCSVM', "warning"),
                             setSliderColor(color = c(rep("#00A65A", 18), 
                                                      rep("#DD4B39", 18), 
                                                      rep("#00C0EF", 18), 
@@ -361,12 +408,21 @@ feat_weights <- function(model_title, input){
       rep(input[[str_c(model_title, "_", feat_names[i])]], feat_count[i])
     })
     
+
     return(unlist(this))
 }
 
 reweight_SHAP <- function(SHAP_df, feat_weights){
   # function to produce a re-weighted SHAP data.frame
-  rwtd_SHAP_df <- dplyr::select(SHAP_df, -INDICATOR) * feat_weights
+  rwtd_SHAP_df <- SHAP_df %>%
+                dplyr::select(-INDICATOR) %>%
+                dplyr::select(order(current_vars())) %>%
+                tibble()
+
+  for (i in 1:ncol(rwtd_SHAP_df)){
+    rwtd_SHAP_df[i] <- rwtd_SHAP_df[i] * feat_weights[i]
+  }
+
   rwtd_SHAP_df['INDICATOR'] <- SHAP_df['INDICATOR']
   return(rwtd_SHAP_df)
 }
@@ -374,7 +430,7 @@ reweight_SHAP <- function(SHAP_df, feat_weights){
 shap_plotly <- function(SHAP_df, ind_select){
   SHAP_df <- SHAP_df %>%
     dplyr::filter(INDICATOR == ind_select) %>%
-    dplyr::select(-INDICATOR)
+    dplyr::select(-INDICATOR) 
   
   value <- SHAP_df %>% rowSums()
   
@@ -394,7 +450,6 @@ shap_plotly <- function(SHAP_df, ind_select){
               str_replace(., "  ", ": ") %>%
               str_wrap(., width=30)
       }) +
-    xlim(-0.25, 0.75) +
     labs(y="",
          x="SHAP Values") + 
     theme_classic(base_size = 10) + 
@@ -402,6 +457,7 @@ shap_plotly <- function(SHAP_df, ind_select){
           plot.title = element_text(hjust=-1)) 
   
   ggplotly(p, tooltip = 'x') %>%
+    config(displayModeBar = FALSE) %>%
     layout(title = list(text = str_c("<b>",ind_select,": ",round(value, 4),"</b>")),
                         font = list(size = 10))
 }
@@ -430,8 +486,32 @@ server <- function(input, output) {
                   feat_weights("OCSVM", input))
   })
   
-  #### b. Main 'Display' DataFrame ----------
-  
+  #### b. Main 'Display' Data Frame ----------
+  main_df <- reactive({
+    # get scores from reweighted SHAP values
+    iForest <- dplyr::select(rwtd_SHAPiForest(), -INDICATOR) %>% rowSums()
+    xStream <- dplyr::select(rwtd_SHAPxStream(), -INDICATOR) %>% rowSums()
+    lof <- dplyr::select(rwtd_SHAPlof(), -INDICATOR) %>% rowSums()
+    ocsvm <- dplyr::select(rwtd_SHAPocsvm(), -INDICATOR) %>% rowSums()
+    
+    # build the ensemble score
+    ensemble <- (iForest * input$iForest_include +
+                       xStream * input$xStream_include +
+                       lof * input$LOF_include +
+                       ocsvm * input$OCSVM_include) / sum(input$iForest_include,
+                                                          input$xStream_include,
+                                                          input$LOF_include,
+                                                          input$OCSVM_include)
+    
+    # combine with display_df
+    display_df %>%
+      add_column(xStream,
+                 iForest,
+                 lof,
+                 ocsvm,
+                 ensemble) %>%
+      arrange(desc(ensemble))
+  })
   
   ### II. UI Outputs ---------------------
   #### a. Dynamic UI Structure ----------
@@ -440,6 +520,22 @@ server <- function(input, output) {
       eda_ui(7)
     } else{
       eda_ui(10)
+    }
+  })
+  
+  select_ind <- reactive({
+    main_df()[input$main_dt_rows_selected, ] %>% .[['INDICATOR']]
+  })
+  
+  output$anomaly_exp <- renderUI({
+    if (length(input$main_dt_rows_selected)){
+             anomaly_exp()
+    }
+  })
+  
+  output$mark_btns <- renderUI({
+    if (length(input$main_dt_rows_selected)){
+      action_btns()
     }
   })
   
@@ -458,21 +554,33 @@ server <- function(input, output) {
     }
   })
   
-  #### c. Plots ------------------
+  #### c. Data Tables ----------------
+  output$main_dt <- DT::renderDataTable({
+    main_df() %>% 
+      select(INDICATOR, iForest, xStream, 
+             lof, ocsvm, ensemble, everything()) %>%
+      mutate(across(where(is.numeric), round, 4))
+  }, selection = 'single',
+     options   = list(scrollX = TRUE,
+                      scrollY = TRUE,
+                      autoWidth = TRUE,
+                      pageLength = 5))
+  
+  #### d. Plots ------------------
   output$SHAP_iForest <- renderPlotly({
-    shap_plotly(rwtd_SHAPiForest(), "starlinkinvest.com")
+    shap_plotly(rwtd_SHAPiForest(), select_ind())
   })
   
   output$SHAP_xStream <- renderPlotly({
-    shap_plotly(rwtd_SHAPxStream(), "starlinkinvest.com")
+    shap_plotly(rwtd_SHAPxStream(), select_ind())
   })
   
   output$SHAP_lof <- renderPlotly({
-    shap_plotly(rwtd_SHAPlof(), "starlinkinvest.com")
+    shap_plotly(rwtd_SHAPlof(), select_ind())
   })
   
   output$SHAP_ocsvm <- renderPlotly({
-    shap_plotly(rwtd_SHAPocsvm(), "starlinkinvest.com")
+    shap_plotly(rwtd_SHAPocsvm(), select_ind())
   })
 }
 
