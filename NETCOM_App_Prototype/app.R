@@ -5,6 +5,8 @@ library(shiny)
 library(shinydashboard)
 library(shinyWidgets)
 library(fresh)
+library(shinyjs)
+library(DT)
 # AWS
 library(aws.s3)
 library(aws.signature)
@@ -198,9 +200,6 @@ eda_ui <- function(width){
 
 anomaly_exp <- function(){
   # SHAP plots
-  box(width =12,
-      h4(strong("Anomaly Explanation"), align='center'), 
-      p("The SHAP plots below display the 15 most significant features for each of the models used to score this observation.", strong("Feature Significance "),"in shapley calculations is determined in comparison to the average/ baseline of each feature."),
       tabBox(width=12,
              tabPanel(title = p(icon("tree-conifer", lib="glyphicon"), 
                                 "iForest"),
@@ -219,18 +218,16 @@ anomaly_exp <- function(){
                       plotlyOutput("SHAP_ocsvm",
                                    height = "500px"))
              )
-      )
       
 }
 
 action_btns <- function(){
   # Action buttons
-  box(width = 12, align ='center',
-      h4(strong("Mark for Future Action")),
-      p("If this observation seems suspicious you can mark it for future investigation. If it appears insignificant, you can dismiss it.", align='left'),
+  column(width = 12,
       actionBttn('mark', label="Investigate",
                     style = "unite",
-                    color = 'danger'),
+                    color = 'primary'),
+      p(),
       actionBttn('ignore', label="Ignore",
                     style = "unite",
                     color = 'royal')
@@ -308,35 +305,39 @@ body <- dashboardBody(use_theme(my_theme),
           ### I. Explore Anomaly Tab -----------------------------------
           tabItem("ranks",
                   fluidPage(
+                    
+                    tags$head(tags$style("#main_dt {white-space: nowrap;}")),
                     #### a. Ranked Anomaly Table -------------
-                    column(width =7,
-                           box(width=12,
-                               tags$head(tags$style(HTML( 
-                                 ".dataTables_scrollBody {
-    transform:rotateX(180deg);
-}
-.dataTables_scrollBody table {
-    transform:rotateX(180deg);
-}
-   "
-                               ))),
+                    fluidRow(box(width=10,
                                h4(strong("Ranked Anomalies"), align='center'),
-                               DT::dataTableOutput("main_dt",
-                                                   height = "500px"))
-                    ),
-                    column(width=5,
-                           box(width=12, align = 'center',
-                               #### b. How to Use -------------
-                               h4(strong("How To Use"), align ='center'),
-                               p("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")),
-                           #### c. Take Action ------
-                           uiOutput("mark_btns"),
-                           #### d. SHAP plots ------
-                           uiOutput("anomaly_exp")
-                          )
-                        )
-                      
-                    ),
+                               DT::dataTableOutput("main_dt")),
+
+                                    #### b. How to Use -------------
+                                    box(width=2, align = 'center',
+                                        h4(strong("How To Use")),
+                                        p("This app provides interactive and interpretable anomaly scoring for new websites visited on the enterprise network. Click on an observation to gain insights on why it may be an anomaly.", align='left'),
+                                     #### b. Take Action ------
+                                        h5(strong("Mark for Future Action")),
+                                        p("If an observation seems suspicious you can mark it for future investigation. If it appears insignificant, you can dismiss it.", align='left'),
+                                     uiOutput("mark_btns"))
+                             ),
+                    fluidRow(
+                             #### d. Ensemble score distribution -----
+                             column(width = 6,
+                                    box(width=12,
+                                        h4(strong("Score Distribution"), align = 'center'),
+                                        p("This density plot shows the distribution of our final anomaly scores produced by", strong("mean-ensembling") ,"of the four tailored models."),
+                                        plotlyOutput("score_dist",
+                                                     height = "250px")),
+                                    box(width=12,
+                                        h4(strong("Mute Features"), align = 'center'))),
+                             #### e. SHAP plots ------
+                             box(width =6,
+                                 h4(strong("Anomaly Explanation"), align='center'), 
+                                 p("SHAP plots show the 15 most significant features for each of the models used to score this observation.", strong("Feature Significance "),"in shapley calculations is determined in comparison to a global average (the baseline) of each feature."),
+                             uiOutput("anomaly_exp")
+                            )
+                          ))),
           ### II. Model Evaluation -------------------------------------
           tabItem("eval",
                   fluidPage(
@@ -486,26 +487,44 @@ shap_plotly <- function(SHAP_df, ind_select){
                         font = list(size = 10))
 }
 
+reset_weights <- function(session, model_title){
+  # function to reset the weights of a specific model
+  # first pull all feature names
+  feat_names <- dplyr::select(SHAPiforest, -INDICATOR) %>%
+    names() %>% 
+    str_remove_all(., "__.*$") %>%
+    unique()
+  
+  # update slider inputs
+  for (feat in feat_names){
+    updateSliderInput(session, str_c(model_title, "_", feat), value=1)
+  }
+}
+
 ## B. Main Fxn --------------------------------------------
-server <- function(input, output) {
+server <- function(input, output, session) {
   ### I. Data Reactive -------------------
   #### a. Re-weighted SHAP df's ----------
-  rwtd_SHAPiForest <- reactive({
+  rwtd_SHAPiForest <- eventReactive(input$iForest_rwt,
+                                    ignoreNULL = F,{
     reweight_SHAP(SHAPiforest,
                   feat_weights("iForest", input))
   })
   
-  rwtd_SHAPxStream <- reactive({
+  rwtd_SHAPxStream <- eventReactive(input$xStream_rwt,
+                                    ignoreNULL = F, {
     reweight_SHAP(SHAPxstream,
                   feat_weights("xStream", input))
   })
   
-  rwtd_SHAPlof <- reactive({
+  rwtd_SHAPlof <- eventReactive(input$LOF_rwt, 
+                                ignoreNULL = F, {
     reweight_SHAP(SHAPlof,
                   feat_weights("LOF", input))
   })
   
-  rwtd_SHAPocsvm <- reactive({
+  rwtd_SHAPocsvm <- eventReactive(input$OCSVM_rwt,
+                                  ignoreNULL = F, {
     reweight_SHAP(SHAPocsvm,
                   feat_weights("OCSVM", input))
   })
@@ -539,6 +558,7 @@ server <- function(input, output) {
   
   ### II. UI Outputs ---------------------
   #### a. Dynamic UI Structure ----------
+  # render UI for eda plots
   output$eda_ui <- renderUI({
     if (input$dev_access){
       eda_ui(7)
@@ -547,20 +567,31 @@ server <- function(input, output) {
     }
   })
   
+  # Has the user selected an item in the Data table
   select_ind <- reactive({
     main_df()[input$main_dt_rows_selected, ] %>% .[['INDICATOR']]
   })
   
+  # Render UI for 
   output$anomaly_exp <- renderUI({
-    if (length(input$main_dt_rows_selected)){
-             anomaly_exp()
-    }
-  })
-  
+      if (length(input$main_dt_rows_selected)){ anomaly_exp() }
+    })
   output$mark_btns <- renderUI({
-    if (length(input$main_dt_rows_selected)){
-      action_btns()
-    }
+    if (length(input$main_dt_rows_selected)){ action_btns() }
+    })
+  
+  # Reset feature weights
+  observeEvent(input$iForest_reset, {
+      reset_weights(session, "iForest")
+  })
+  observeEvent(input$xStream_reset, {
+    reset_weights(session, "xStream")
+  })
+  observeEvent(input$LOF_reset, {
+    reset_weights(session, "LOF")
+  })
+  observeEvent(input$OCSVM_reset, {
+    reset_weights(session, "OCSVM")
   })
   
   #### b. Developer Access ---------------
@@ -583,30 +614,47 @@ server <- function(input, output) {
     main_df() %>% 
       select(INDICATOR, iForest, xStream, 
              lof, ocsvm, ensemble, everything()) %>%
+      select(-CERT, -GN_IP_SRC) %>%
       mutate(across(where(is.numeric), round, 4))
   }, selection = 'single',
      options   = list(scrollX = TRUE,
-                      scrollY = TRUE,
-                      autoWidth = TRUE,
-                      pageLength = 5))
+                      scrollY = TRUE))
   
   #### d. Plots ------------------
+  ##### i . SHAP plots ----
   output$SHAP_iForest <- renderPlotly({
     shap_plotly(rwtd_SHAPiForest(), select_ind())
   })
-  
   output$SHAP_xStream <- renderPlotly({
     shap_plotly(rwtd_SHAPxStream(), select_ind())
   })
-  
   output$SHAP_lof <- renderPlotly({
     shap_plotly(rwtd_SHAPlof(), select_ind())
   })
-  
   output$SHAP_ocsvm <- renderPlotly({
     shap_plotly(rwtd_SHAPocsvm(), select_ind())
   })
   
+  ##### ii. Score Distribution -----
+  output$score_dist <- renderPlotly({
+    p <- ggplot(data = main_df(),
+                aes(x = ensemble))+
+            geom_density(col = "#2E3440",
+                         fill = "#B0BED9", adjust=0.5) +
+            theme_bw()
+    
+    if (length(input$main_dt_rows_selected)){
+        val <- main_df() %>% filter(INDICATOR == select_ind()) %>%
+          .[['ensemble']]
+        
+        p <- p + geom_vline(xintercept = val, col = 'firebrick', lty=2)
+    }
+    
+    ggplotly(p)%>%
+      config(displayModeBar = FALSE)
+  })
+  
+  ##### iii. EDA plot ------
   output$eda_plot <- renderPlotly({
     # manipulate the data to only plottable features
     this <- main_df() %>%
@@ -620,11 +668,11 @@ server <- function(input, output) {
       if (input$feat_x %in% c("CERT_AUTHORITY", "WHOIS_CC")){
         p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
                                         text = "INDICATOR")) +
-          geom_histogram(stat='count', fill = "#434C5E") + theme_bw()
+          geom_histogram(stat='count', fill = "#434C5E", bins = 22) + theme_bw()
       } else {
         p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
                                  text = "INDICATOR")) +
-            geom_histogram(fill = "#434C5E") + theme_bw()
+            geom_histogram(fill = "#434C5E", bins = 22) + theme_bw()
       }
     } else{
       # if bivariate produce jitter
