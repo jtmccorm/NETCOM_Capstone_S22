@@ -59,7 +59,7 @@ normalize_SHAP <- function(scores, SHAP_df){
 ## B. Download files of interest --------------------
 ### I. Access Bucket -----------------------------
 bucket <- get_bucket(bucket="xstream-capstone")
-### II. Download all '/data' files in the bucket ----
+### II. Download all 'data' files in the bucket ----
 read_all_csvs(bucket, "data") 
 
 ## C. Clean and Prep data -------------------------
@@ -93,6 +93,14 @@ SHAPxstream['INDICATOR'] <- display_df['INDICATOR']
 SHAPlof['INDICATOR']     <- display_df['INDICATOR']
 SHAPocsvm['INDICATOR']   <- display_df['INDICATOR']
 
+### IV. Create App Temporary Data -----
+
+# Numeric feature names for SHAP re-weighting 
+feat_names <- dplyr::select(SHAPiforest, -INDICATOR) %>%
+  names() %>% 
+  str_remove_all(., "__.*$") %>%
+  unique()
+
 print('Data Prep Complete')
 
 # 1. User Interface ===================================================
@@ -101,11 +109,7 @@ print('Data Prep Complete')
 
 feature_panel <- function(model_title, color){
   # Function to procedurally generate inputs for each model
-  # first pull all feature names
-  feat_names <- dplyr::select(SHAPiforest, -INDICATOR) %>%
-    names() %>% 
-    str_remove_all(., "__.*$") %>%
-    unique()
+  # first split the feat_names
   feat_1 <- split(feat_names, rep(c(1,2), 9))$`1`
   feat_2 <- split(feat_names, rep(c(1,2), 9))$`2`
   
@@ -221,6 +225,37 @@ anomaly_exp <- function(){
       
 }
 
+muter_picker <- function(model_title, icon_sym){
+  pickerInput(inputId = str_c(model_title, "_mute"),
+              label   = p(icon(icon_sym, lib="glyphicon"),
+                              str_c(model_title, " Muted Features:")),
+              choices = feat_names,
+              multiple = TRUE,
+              width = "250px",
+              options = list(`actions-box`=TRUE, 
+                             size = 10,
+                             `selected-text-format` = "count > 3",
+                             `none-selected-text` = "No Muted Features")
+              )
+}
+
+feature_muter <- function(){
+  box(width=12,
+      h4(strong("Mute Features"), align = 'center'),
+      p("Using the SHAP values we can ", strong("iteratively reweight")," our anomaly scoring models. Select features below to mute it's impact within a specific model."),
+      fluidRow( column(width =6, 
+                       muter_picker("iForest", "tree-conifer"),
+                       muter_picker("xStream", "random")),
+                column(width =6,
+                       muter_picker("LOF", "sunglasses"),
+                       muter_picker("OCSVM", "dashboard"))),
+      fluidRow(align = 'center',
+               actionBttn('recalc_all',
+                          "Recalculate Models",
+                          style='unite'))
+  )
+}
+
 action_btns <- function(){
   # Action buttons
   column(width = 12,
@@ -295,7 +330,21 @@ sidebar <-dashboardSidebar(
             )
           )
         )
-      )
+      ),
+    ### III. Download Buttons ------
+    column(width = 12, align = 'center', 
+           dropdownButton(
+            box(width = 12, align = 'center',
+                downloadBttn("download_marked", "Marked Only",
+                             style = "stretch"),
+                downloadBttn("download_all", "All",
+                             style = "stretch", color ='royal')
+                ),
+            circle = TRUE, status = "primary",
+            icon = icon("download-alt", lib = "glyphicon"), 
+            width = "300px",
+            tooltip = tooltipOptions(title = "Click to download the data.")
+          ))
   )
 )
 
@@ -329,8 +378,7 @@ body <- dashboardBody(use_theme(my_theme),
                                         p("This density plot shows the distribution of our final anomaly scores produced by", strong("mean-ensembling") ,"of the four tailored models."),
                                         plotlyOutput("score_dist",
                                                      height = "250px")),
-                                    box(width=12,
-                                        h4(strong("Mute Features"), align = 'center'))),
+                                    feature_muter()),
                              #### e. SHAP plots ------
                              box(width =6,
                                  h4(strong("Anomaly Explanation"), align='center'), 
@@ -428,9 +476,14 @@ feat_weights <- function(model_title, input){
     
     feat_names <- feat_dict$var %>% as.character()
     feat_count <- feat_dict$n
+    muted_feats <- input[[str_c(model_title, "_mute")]]
     
     this <- lapply(1:18, function(i){
-      rep(input[[str_c(model_title, "_", feat_names[i])]], feat_count[i])
+      if (feat_names[i] %in% muted_feats){
+        rep(0, feat_count[i])
+      } else{
+        rep(input[[str_c(model_title, "_", feat_names[i])]], feat_count[i])
+      }
     })
     
 
@@ -505,25 +558,25 @@ reset_weights <- function(session, model_title){
 server <- function(input, output, session) {
   ### I. Data Reactive -------------------
   #### a. Re-weighted SHAP df's ----------
-  rwtd_SHAPiForest <- eventReactive(input$iForest_rwt,
+  rwtd_SHAPiForest <- eventReactive(c(input$iForest_rwt,input$recalc_all),
                                     ignoreNULL = F,{
     reweight_SHAP(SHAPiforest,
                   feat_weights("iForest", input))
   })
   
-  rwtd_SHAPxStream <- eventReactive(input$xStream_rwt,
+  rwtd_SHAPxStream <- eventReactive(c(input$xStream_rwt, input$recalc_all),
                                     ignoreNULL = F, {
     reweight_SHAP(SHAPxstream,
                   feat_weights("xStream", input))
   })
   
-  rwtd_SHAPlof <- eventReactive(input$LOF_rwt, 
+  rwtd_SHAPlof <- eventReactive(c(input$LOF_rwt, input$recalc_all),
                                 ignoreNULL = F, {
     reweight_SHAP(SHAPlof,
                   feat_weights("LOF", input))
   })
   
-  rwtd_SHAPocsvm <- eventReactive(input$OCSVM_rwt,
+  rwtd_SHAPocsvm <- eventReactive(c(input$OCSVM_rwt, input$recalc_all),
                                   ignoreNULL = F, {
     reweight_SHAP(SHAPocsvm,
                   feat_weights("OCSVM", input))
@@ -556,6 +609,9 @@ server <- function(input, output, session) {
       arrange(desc(ensemble))
   })
   
+  #### c. Stored Reactive Values ------
+  stored <- reactiveValues(marked = character(0), ignored = character(0))
+  
   ### II. UI Outputs ---------------------
   #### a. Dynamic UI Structure ----------
   # render UI for eda plots
@@ -585,19 +641,19 @@ server <- function(input, output, session) {
       reset_weights(session, "iForest")
   })
   observeEvent(input$xStream_reset, {
-    reset_weights(session, "xStream")
+      reset_weights(session, "xStream")
   })
   observeEvent(input$LOF_reset, {
-    reset_weights(session, "LOF")
+      reset_weights(session, "LOF")
   })
   observeEvent(input$OCSVM_reset, {
-    reset_weights(session, "OCSVM")
+      reset_weights(session, "OCSVM")
   })
   
   #### b. Developer Access ---------------
   # Are the credentials correct?
   dev_cred <- eventReactive(input$dev_cred,{
-    input$user == "slartibartfast" & input$password == "42"
+    input$user == "jtmccorm" & input$password == "2017"
   })
   
   # If so, update the text.
@@ -641,6 +697,8 @@ server <- function(input, output, session) {
                 aes(x = ensemble))+
             geom_density(col = "#2E3440",
                          fill = "#B0BED9", adjust=0.5) +
+            labs(x = "Ensembled Anomaly Score",
+                 y = "Density") +
             theme_bw()
     
     if (length(input$main_dt_rows_selected)){
@@ -677,9 +735,19 @@ server <- function(input, output, session) {
     } else{
       # if bivariate produce jitter
       p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
-                                      y = str_c("`",input$feat_y,"`"), 
+                                      y = str_c("`",input$feat_y,"`"),
+                                      color = 'ensemble',
                                       text = "INDICATOR")) +
-            geom_jitter(color = "#434C5E") + theme_bw()
+            geom_jitter(width = 0.1, height = 0.1) +
+            theme_bw()
+      if (!(input$feat_y %in% c("CERT_AUTHORITY", "WHOIS_CC"))){
+        p <- p + geom_hline(yintercept = 0,
+                            col = 'gray20', lty=3)
+      }
+      if (!(input$feat_x %in% c("CERT_AUTHORITY", "WHOIS_CC"))){
+        p <- p + geom_vline(xintercept = 0,
+                            col = 'gray20', lty=3)
+      }
     }
     
     # turn into plotly
@@ -687,6 +755,40 @@ server <- function(input, output, session) {
       config(displayModeBar = FALSE) 
   })
   
+  #### e. Downloads ----
+  ##### i. Mark & Ignore an Observation -----
+  observeEvent(input$mark,{
+    stored$marked <- append(stored$marked, select_ind()) %>% unique()
+    print(stored$marked)
+  })
+  
+  observeEvent(input$ignore,{
+    stored$marked <- stored$marked[stored$marked != select_ind()]
+    stored$ignored <- append(stored$ignored, select_ind()) %>% unique()
+    print(stored$marked)
+    print(stored$ignored)
+  })
+  
+  ##### ii. Download Handlers ----
+  output$download_marked <- downloadHandler(
+    filename = str_c("NETCOM_DSD_Anomaly_Detection_",length(stored$marked),"_Marked.csv"),
+    content = function(file){
+      main_df() %>% filter(INDICATOR %in% stored$marked) %>%
+        write_csv(., file)
+    }
+  )
+  
+  output$download_all <- downloadHandler(
+    filename = ("NETCOM_DSD_Anomaly_Detection_All.csv"),
+    content = function(file){
+      main_df() %>%
+        mutate(marked = case_when(
+          INDICATOR %in% stored$marked  ~ 'Investigate',
+          INDICATOR %in% stored$ignored ~ 'Ignore',
+          TRUE                          ~ 'NA')) %>%
+        write_csv(., file)
+    }
+  )
 }
 
 # Run the application 
