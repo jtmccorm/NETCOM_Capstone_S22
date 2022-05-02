@@ -173,8 +173,8 @@ eda_ui <- function(width){
                # Plot type
                selectInput("plotType",
                            "Distribution to Explore",
-                           choices = c("Univariate", "Bivariate"),
-                           selected = "Univariate"),
+                           choices = c("Histogram", "Scatter Plot"),
+                           selected = "Histogram"),
                # X Variable Selector
                selectInput("feat_x",
                            "Selected Feature (x)",
@@ -182,7 +182,7 @@ eda_ui <- function(width){
                            selected = "CERT_AUTHORITY"),
                # Y Variable Selector
                conditionalPanel(
-                 condition = "input.plotType == 'Bivariate'",
+                 condition = "input.plotType == 'Scatter Plot'",
                  selectInput("feat_y",
                              "Selected Feature (y)",
                              choices = display_feats,
@@ -191,8 +191,9 @@ eda_ui <- function(width){
            ),
            # Explanation
            box(width=8, 
-               h4(strong("Evaluate and Modify Models"), align = 'center'),
-               p("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."))
+               h4(strong("Explore Data and Evaluate Models"), align = 'center'),
+               p("Alongside algorithmic anomaly detection, visually examing the data can be a powerful tool to better understand the models and identify potential gaps. These plots allow you to explore variables's distributions and relationships."),
+               p("Correlations and trends of the scoring models can be assesed as well. How do the models relate to one another and key variables? Are particular features exerting undue influence? In developer mode,  these insights can be actioned by removing models from the ensemble and fine tuning feature weights."))
          ),
          # Plot 
          fluidRow(
@@ -721,7 +722,7 @@ server <- function(input, output, session) {
                  WHOIS_CC = factor(str_wrap(str_replace(WHOIS_CC,",.*$",""), 5)))
   
     
-    if (input$plotType == "Univariate"){
+    if (input$plotType == "Histogram"){
       # if Univariate continuous produce histogram
       if (input$feat_x %in% c("CERT_AUTHORITY", "WHOIS_CC")){
         p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
@@ -733,7 +734,7 @@ server <- function(input, output, session) {
             geom_histogram(fill = "#434C5E", bins = 22) + theme_bw()
       }
     } else{
-      # if bivariate produce jitter
+      # if Bivariate produce jitter
       p<-ggplot(data=this, aes_string(x = str_c("`",input$feat_x,"`"), 
                                       y = str_c("`",input$feat_y,"`"),
                                       color = 'ensemble',
