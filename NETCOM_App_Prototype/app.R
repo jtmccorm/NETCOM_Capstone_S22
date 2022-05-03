@@ -1,3 +1,4 @@
+# NETCOM Anomaly Detection Prototype
 # author: jtmccorm
 
 # Shiny
@@ -465,12 +466,33 @@ body <- dashboardBody(use_theme(my_theme),
                              tabPanel("App Development",
                                       p("Pertinent to improving DSD's workflow, we developed this app prototype to demonstrate how anomaly detection, explainable AI, and an interactive UI can both expedite their analytic processes and offer new features not previously available. Ready to", strong("'plug-and-play'"),", once connected to DSD's AWS backend on Gov-Cloud the app will be", strong(" fully operational."))),
                                       # include proposed workflow
-                             tabPanel("Support and Funding",
-                                      p("This app has been brought to you by:"),
-                                      p("Special thanks to:")))
+                             tabPanel("Support and Collaboration",
+                                      p("The development of this app would have been impossible without the support and funding of:"),
+                                      tags$ul(
+                                        tags$li("US Amry Network Command (NETCOM)"),
+                                        tags$li("The NETCOM Data Science Center Pittsburgh (DSC-Pitt)"),
+                                        tags$li("The Heinz College of Information Systems and Public Policy at Carnegie Mellon University")
+                                      ),
+                                      p("Special thanks to:"),
+                                      tags$ul(
+                                        tags$li("Dan Costa - Project Advisor and Capstone Mentor"),
+                                        tags$li("Major Kevin Goulding - DSC-Pitt Data Scientist"),
+                                        tags$li("Lieutenent Colonel Josiah Pickett - Director of DSC-Pitt"),
+                                        tags$li("Dr. Leman Akoglu - Associate Professor of Information Systems")
+                                        )
+                                      ) )
+                      ),
+                  box(width = 5,
+                      h4(strong("Contributers"), align = 'center'),
+                      p(strong("Lydia Barit"), " - Project Manager; Risk Response Strategist"),
+                      p(strong("Katy Dula"), " - Data Scientist; Process Organizer"),
+                      p(strong("Blake Jacobs"), " - Back-end Developer; Chief Systems Administrator"),
+                      p(strong("Harrison Lienweber"), " - Cyber Security Analyst; Promotional Content Director"),
+                      p(strong("Bobby Nelson"), " - Machine Learning Engineer; Financial Manager"),
+                      p(strong("John T McCormick"), " - Data Scientist; Front-end Developer")
                       )
-                  )
         )
+    )
 )
 
 
