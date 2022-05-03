@@ -454,18 +454,23 @@ body <- dashboardBody(use_theme(my_theme),
                              tabPanel("Goals",
                                       p(strong("MISSION:"),"The overall objective of our project was to ", tags$i("develop a methodology")," that the Network Command (NETCOM) Data Science Directorate (DSD) can use to evaluate the effectiveness of models before putting them into production, with a specific focus on anomaly detection."),
                                       p(strong("PURPOSE: "), "help NETCOM understand the effectiveness of anomaly detection models in use cases pertinent to the Command’s mission and effectively incorporate these models in their current workflow."),
-                                      p(strong("Key outcomes "), "include:"),
+                                      p(strong("Key outcomes "), "included:"),
                                       tags$ul(tags$li("Streamline anomaly detection and investigation"),
                                               tags$li("Provide an understanding of how xStream compares to other models in particular use cases"),
                                               tags$li("Equip NETCOM DSC-PIT with relevant tools to make subsequent risk-based decisions")
                                               ),
+                                      p("We divided the project into three lines of efforts with two product deliverables:"),
                                       # include project meta-framework
+                                      p(img(src="project_framework.JPG", width = '75%'), align = 'center'),
                                       p(strong("IMPACT: "), "Our work will allow Soldiers to triage potential threats and vulnerabilities and focus investigative manpower on the most critical cases. Our metrics will be inreasing investiagtion ",strong("precision"), "while maintaining ", strong("high recall."))
                                       
                              ),
                              tabPanel("App Development",
-                                      p("Pertinent to improving DSD's workflow, we developed this app prototype to demonstrate how anomaly detection, explainable AI, and an interactive UI can both expedite their analytic processes and offer new features not previously available. Ready to", strong("'plug-and-play'"),", once connected to DSD's AWS backend on Gov-Cloud the app will be", strong(" fully operational."))),
+                                      p("Pertinent to improving DSD's workflow, we developed this app prototype to demonstrate how anomaly detection, explainable AI, and an interactive UI can both expedite their analytic processes and offer new features not previously available. Ready to", strong("'plug-and-play'"),", once connected to DSD's AWS backend on Gov-Cloud the app will be", strong(" fully operational.")),
                                       # include proposed workflow
+                                      p(img(src = "proposed_webflow.JPG", width ='100%'), align = 'center')
+                                      ),
+                                      
                              tabPanel("Support and Collaboration",
                                       p("The development of this app would have been impossible without the support and funding of:"),
                                       tags$ul(
@@ -482,6 +487,7 @@ body <- dashboardBody(use_theme(my_theme),
                                         )
                                       ) )
                       ),
+                  # Contributors (the Team and Roles)
                   box(width = 5,
                       h4(strong("Contributers"), align = 'center'),
                       p(strong("Lydia Barit"), " - Project Manager; Risk Response Strategist"),
