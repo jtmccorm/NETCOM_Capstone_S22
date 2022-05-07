@@ -96,9 +96,4 @@ shap_plot <- function(SHAP_df, ind_select){
   return(p)
 }
 
-# extract specific observation and shap scores
-weights <- rep(0.5, 606)
-shap_vals <- SHAPiforest %>% dplyr::select(-INDICATOR) %>% .[1,] %>% as.numeric()
-weights %*% shap_vals # specific scores
 
-names(rep(1, 607)) <- names(SHAPiforest)

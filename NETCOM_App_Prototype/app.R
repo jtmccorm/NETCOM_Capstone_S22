@@ -271,6 +271,33 @@ action_btns <- function(){
   )
 }
 
+contrib_row <- function(name, job1, job2, img, left_pic){
+  if (left_pic){
+    fluidRow(
+      column(width = 3, align ='right',
+             img(src = img, width='100%')
+      ),
+      column(width = 6, align = 'center',
+             h4(strong(name)), 
+             h5(job1),
+             h5(job2)
+      ),
+      column(width = 3)
+    )
+  } else{
+    fluidRow(
+      column(width = 3),
+      column(width = 6, align = 'center',
+             h4(strong(name)), 
+             h5(job1),
+             h5(job2)),
+      column(width = 3, align ='left',
+             img(src = img, width='100%')
+      )
+    )
+  }
+}
+
 ## B. Create UI Theme -------------------------------------------------
 # drawn from example at https://github.com/dreamRs/fresh
 my_theme <- create_theme(
@@ -448,9 +475,15 @@ body <- dashboardBody(use_theme(my_theme),
                   ),
           ### III. About -------------------------------------------------
           tabItem("about",
-                  box(width =7,
-                      h4(strong('About'), align='center'),
-                      tabBox(width=12, 
+                  box(width =8,
+                      h3(strong('About'), align='center'),
+                      #### a. Descriptions ------
+                      tabBox(width=12,
+                             ##### i. Summary ----
+                             tabPanel("Summary",
+                                      HTML('<iframe width="100%" height = "600" src="https://www.youtube.com/embed/zBE4twWFRD8" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>')
+                                      ),
+                             ##### ii. Project Goals -----
                              tabPanel("Goals",
                                       p(strong("MISSION:"),"The overall objective of our project was to ", tags$i("develop a methodology")," that the Network Command (NETCOM) Data Science Directorate (DSD) can use to evaluate the effectiveness of models before putting them into production, with a specific focus on anomaly detection."),
                                       p(strong("PURPOSE: "), "help NETCOM understand the effectiveness of anomaly detection models in use cases pertinent to the Command’s mission and effectively incorporate these models in their current workflow."),
@@ -465,16 +498,17 @@ body <- dashboardBody(use_theme(my_theme),
                                       p(strong("IMPACT: "), "Our work will allow Soldiers to triage potential threats and vulnerabilities and focus investigative manpower on the most critical cases. Our metrics will be inreasing investiagtion ",strong("precision"), "while maintaining ", strong("high recall."))
                                       
                              ),
+                             ##### iii. Application Development ----
                              tabPanel("App Development",
                                       p("Pertinent to improving DSD's workflow, we developed this app prototype to demonstrate how anomaly detection, explainable AI, and an interactive UI can both expedite their analytic processes and offer new features not previously available. Ready to", strong("'plug-and-play'"),", once connected to DSD's AWS backend on Gov-Cloud the app will be", strong(" fully operational.")),
                                       # include proposed workflow
                                       p(img(src = "proposed_webflow.JPG", width ='100%'), align = 'center')
                                       ),
-                                      
+                             ##### iv. Thanks ------
                              tabPanel("Support and Collaboration",
                                       p("The development of this app would have been impossible without the support and funding of:"),
                                       tags$ul(
-                                        tags$li("US Amry Network Command (NETCOM)"),
+                                        tags$li("US Army Network Command (NETCOM)"),
                                         tags$li("The NETCOM Data Science Center Pittsburgh (DSC-Pitt)"),
                                         tags$li("The Heinz College of Information Systems and Public Policy at Carnegie Mellon University")
                                       ),
@@ -488,16 +522,26 @@ body <- dashboardBody(use_theme(my_theme),
                                       ) )
                       ),
                   # Contributors (the Team and Roles)
-                  box(width = 5,
-                      h4(strong("Contributers"), align = 'center'),
-                      p(strong("Lydia Barit"), " - Project Manager; Risk Response Strategist"),
-                      p(strong("Katy Dula"), " - Data Scientist; Process Organizer"),
-                      p(strong("Blake Jacobs"), " - Back-end Developer; Chief Systems Administrator"),
-                      p(strong("Harrison Lienweber"), " - Cyber Security Analyst; Promotional Content Director"),
-                      p(strong("Bobby Nelson"), " - Machine Learning Engineer; Financial Manager"),
-                      p(strong("John T McCormick"), " - Data Scientist; Front-end Developer")
-                      )
-        )
+                  column(width = 4,
+                    #### b. Contributors ----
+                    box(width = 12,
+                        h3(strong("Contributers"), align = 'center'),
+                        contrib_row("Lydia Barit", "Project Manager","Risk Response Strategist",
+                                    "barit.jpg", TRUE),
+                        contrib_row("Katy Dula", "Data Scientist","Process Organizer",
+                                    "dula.jpg", FALSE),
+                        contrib_row("Blake Jacobs", "Back-end Developer","Chief Systems Administrator",
+                                    "jacobs.jpg", TRUE),
+                        contrib_row("Harrison Leinweber", 
+                                    "Cyber Security Analyst","Promotional Content Director",
+                                    "leinweber.jpg", FALSE),
+                        contrib_row("Bobby Nelson", "Machine Learning Engineer","Financial Manager",
+                                    "nelson.jpg", TRUE),
+                        contrib_row("John T McCormick", "Data Scientist","Front-end Developer",
+                                    "mccormick.jpg", FALSE)
+                        )
+                    )
+          )
     )
 )
 
