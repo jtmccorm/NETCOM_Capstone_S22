@@ -1,0 +1,189 @@
+---
+title: "EDA for Web-Attacks"
+author: "John T McCormick (jtmccorm)"
+date: "2/10/2022"
+output: html_document
+---
+
+> Before conducting any anonaly detection or applying machine learning techniques, we conduct a baseline exploratory data analysis of web attacks contained in the CIC-IDS data. 
+
+```{r setup, message=FALSE, warning=FALSE, echo=TRUE}
+knitr::opts_chunk$set(echo=FALSE)
+library(tidyverse)
+library(tidygraph)
+library(kableExtra)
+```
+
+### Load the Data
+
+```{r load, warning=FALSE, message=FALSE}
+thurs <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv") %>%
+  mutate(Label = factor(iconv(Label, "latin1", "ASCII", sub=":")))
+```
+
+### Summarize Labels
+
+To start let's get a simple idea of what the labels look like in this data-set.
+
+```{r label_table}
+thurs %>% count(Label) %>% select(Label, Count=n) %>%
+  mutate(Percent = scales::percent(Count/sum(Count))) %>%
+  kable() %>% kable_classic(full_width = F, html_font = "Times New Roman") %>%
+  row_spec(1, background="dodgerblue", color="white") %>%
+  row_spec(2, background="firebrick", color="white") %>%
+  row_spec(3, background = "red", color="white") %>%
+  row_spec(4, background = "orangered", color="white")
+  
+```
+
+Unsurprisingly it's skewed very heavily towards benign traffic. We'll keep using the color scheme above in future analyses to identify differences between types.
+
+### Summarize Features
+
+Now we'll get a quick whirl-wind tour of the feature space. The variables can be broken down into three categories:
+
+  - Binary: `Fwd PSH Flags`, `Bwd PSH Flags`, `Fwd URG Flags`, `Bwd URG Flags`, `FIN Flag Count`, `SYN Flag Count`, `RST Flag Count`, `PSH Flag Count`, `ACK Flag Count`, `URG Flag Count`, `CWR Flag Count`, `ECE Flag Count`
+  - Categorical: `Destination Port`
+  - Continuous: *... everything else*
+  
+```{r reformat_data}
+thurs <- thurs %>% 
+  mutate(
+    `Destination Port` = factor(`Destination Port`)
+  )
+```
+
+  
+#### Categorical: Destination Ports
+
+The only feature that is conceptually categorical is `Destination Port`. However, there are so many ports that treating them categorically may create some complications, but will likely be essential to a well-performing model given that ports are not assigned in any ordered fashion.
+
+Here are the top 20 Destination Ports appearing in this subset of the data:
+
+```{r table_ports}
+thurs %>% 
+  dplyr::group_by(`Destination Port`) %>% 
+  summarise(Count = n()) %>% ungroup() %>%
+  slice_max(order_by=Count, n=20) %>% 
+  kable(caption = "Most Common Ports (All Packets)") %>%
+    kable_classic(full_width=FALSE, c("striped","hover")) 
+```
+
+When we filter onto only the malicious packets (containing web-attacks) we find that only one port is in use.
+
+```{r table_malicious_ports}
+thurs %>% filter(Label != "BENIGN") %>%
+  dplyr::group_by(`Destination Port`) %>% 
+  summarise(Count = n()) %>% ungroup() %>%
+  slice_max(order_by=Count, n=20) %>% 
+    kable(caption = "Most Common Ports (Malicious Packets)") %>% 
+    kable_classic(full_width=FALSE, c("striped","hover")) 
+```
+
+As a simple graphical summary, here's a chart of port usage across the whole data set. *Note the use of logarithmic scale to account for the dominance of a relatively small number of ports.*
+
+```{r destination_port, message=FALSE, warning=FALSE, fig.width=10, fig.height=5}
+thurs %>% dplyr::group_by(Label, `Destination Port`) %>%
+  summarise(Count=n()) %>% ungroup() %>%
+  mutate(`Destination Port` = as.numeric(`Destination Port`)) %>%
+    ggplot(aes(x=`Destination Port`, y=Count, fill=Label)) +
+      geom_col(position = "stack") + scale_y_log10(limits=c(1, 1e+5)) + xlim(-10, 20000) +
+      scale_fill_manual(values=c("dodgerblue","firebrick","red", "orangered")) +
+      theme_bw()
+```
+
+#### Binary Features
+
+These features are predominantly flags set in the TCP/UDP packets (bidirectionally) for communication control. TCP/UDP flags can be useful in detecting malicious/anomalous communication when examining host to host exchanges but across the whole network they will often be drowned out. 
+
+Here's a breakdown of the frequency with which each flag occurs per class $P(flag\ |\ class)$:
+
+```{r binary_feature_exploration, fig.height=28, fig.width=10, message=FALSE, warning=FALSE}
+thurs %>% 
+  select(Label, `Fwd PSH Flags`, `Bwd PSH Flags`, 
+         `Fwd URG Flags`, `Bwd URG Flags`, 
+         `FIN Flag Count`, `SYN Flag Count`, 
+         `RST Flag Count`, `PSH Flag Count`, 
+         `ACK Flag Count`, `URG Flag Count`, 
+         `CWE Flag Count`, `ECE Flag Count`) %>%
+  gather(-Label, key=type, value=flag) %>% 
+  group_by(Label, type, flag) %>%
+  summarise(count = n()) %>% 
+  ungroup() %>% group_by(Label, type) %>%
+  mutate(perc = count/ sum(count), flag=factor(flag)) %>%
+    ggplot() + geom_col(aes(x=flag, y= perc, fill = Label), width=0.75) +
+      facet_grid(rows=vars(type), cols=vars(Label)) +
+      scale_fill_manual(values=c("dodgerblue", "firebrick","red", "orangered")) +
+      theme_bw()
+```
+
+We can see that many of the boolean flags do appear more prevalent in certain cases, but let's consider how useful that information may be by examining the reversed conditional probability: the probability of an packet transfer being in a certain class given that a flag was present $P(class\ |\ flag)$.
+
+```{r conditional_binary_exploration, fig.height=20, fig.width=10, message=FALSE, warning=FALSE}
+thurs %>% 
+  select(Label, `Fwd PSH Flags`, #`Bwd PSH Flags`, `Fwd URG Flags`, `Bwd URG Flags`, `CWE Flag Count`, 
+         `FIN Flag Count`, `SYN Flag Count`, 
+         `RST Flag Count`, `PSH Flag Count`, 
+         `ACK Flag Count`, `URG Flag Count`, 
+         `ECE Flag Count`) %>%
+  gather(-Label, key=type, value=flag) %>% 
+  mutate(flag = factor(flag)) %>%
+  group_by(Label, type, flag) %>%
+  summarise(count = n()) %>% 
+  ungroup() %>% group_by(type, flag) %>%
+  mutate(perc = count/ sum(count)) %>%
+      ggplot(aes(x=Label, y=perc, fill=Label)) +
+          geom_col(width=0.75) +
+          facet_grid(rows=vars(type), cols=vars(flag)) +
+          scale_fill_manual(values=c("dodgerblue", "firebrick","red", "orangered")) +
+          theme_bw()
+```
+
+As such, the binary flags don't seem to yield too much predictive power on their own. Though they would likely be invaluable for discerning different types of attacks, especially when we factor in a greater variety of attacks, it's unclear how much utility they'll bring for statistical outlier detection methods (given that the attacks blend into the general noise of regular traffic.)
+
+#### Continuous Features
+
+The continuous features of the data set are mostly derived from aspects of the packet size, duration, and distributions within each set of communications. Below is a histogram/density estimation for each of the features colored by label. *Notice that counts are again displayed on logarithmic scale to address the Pareto-like distributions.*
+
+```{r continuous_feature_exploration, fig.height=30, fig.width=10, warning=FALSE}
+thurs %>% select(-c(`Fwd PSH Flags`, `Bwd PSH Flags`, 
+         `Fwd URG Flags`, `Bwd URG Flags`, 
+         `FIN Flag Count`, `SYN Flag Count`, 
+         `RST Flag Count`, `PSH Flag Count`, 
+         `ACK Flag Count`, `URG Flag Count`, 
+         `CWE Flag Count`, `ECE Flag Count`, `Destination Port`,
+         `Bwd Avg Bulk Rate`, `Bwd Avg Bytes/Bulk`, `Bwd Avg Packets/Bulk`,
+         `Fwd Avg Bulk Rate`, `Fwd Avg Bytes/Bulk`, `Fwd Avg Packets/Bulk`))%>% 
+  gather(-Label, key=feature, value=value) %>%
+  ggplot(aes(x=value, fill=Label)) +
+     geom_histogram(bins=50, position="stack") +
+     facet_wrap(vars(feature), ncol=3, scales="free") +
+     scale_y_log10() +
+     scale_fill_manual(values=c("dodgerblue", "firebrick","red", "orangered")) +
+     theme_bw()
+```
+
+By and large, the malicious communications do not represent statistical outliers for these datasets. Presumably due to deliberate obfuscation, most attacks resemble the norm and do not land on the far end of the spectrum for any these features.
+
+
+```{r principal_component_analysis, eval=FALSE}
+new_df <- thurs %>% select(-c(Label, `Fwd PSH Flags`, `Bwd PSH Flags`, 
+         `Fwd URG Flags`, `Bwd URG Flags`, 
+         `FIN Flag Count`, `SYN Flag Count`, 
+         `RST Flag Count`, `PSH Flag Count`, 
+         `ACK Flag Count`, `URG Flag Count`, 
+         `CWE Flag Count`, `ECE Flag Count`, `Destination Port`,
+         `Bwd Avg Bulk Rate`, `Bwd Avg Bytes/Bulk`, `Bwd Avg Packets/Bulk`,
+         `Fwd Avg Bulk Rate`, `Fwd Avg Bytes/Bulk`, `Fwd Avg Packets/Bulk`)) %>% drop_na()
+
+new_df <- new_df[,colSums(new_df[])>0]
+new_df <- new_df[!is.infinite(rowSums(new_df)),]
+
+thurs.pca <- prcomp(new_df, scale=TRUE, center=TRUE)
+```
+
+
+```{r}
+summary(thurs.pca)
+```
+

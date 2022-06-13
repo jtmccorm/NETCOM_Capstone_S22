@@ -1,0 +1,250 @@
+---
+title: "Model Evaluation"
+author: "John T McCormick (jtmccorm)"
+output:
+  html_document:
+    df_print: paged
+---
+
+> To get a more general idea of how the anomaly detection models perform on this dataset we first selected a random sample of observations from each type of attack and then run the three algorithms of interest (xStream, isolation Forest, and Local Outlier Factor). Using the anomaly scores produced by each algorithm to rank observations and the true attack labels we can assess the precision and recall of the models at various rates of inspection.
+
+```{r setup, message=FALSE, warning=FALSE, echo=TRUE}
+library(tidyverse)
+library(factoextra)
+library(kableExtra)
+library(gridExtra)
+```
+
+
+## 0. Load Sample Data
+
+First, we'll load the data after its been cleaned and normalized. 
+
+```{r load_data, message=FALSE, warnings=F}
+# get feature names from previous sample
+x_names <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data/x_sample.csv", col_select = -1) %>% names()
+
+# get new sample
+x_sample <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/x_sample.csv", col_select=-1) 
+colnames(x_sample) <- x_names
+y_sample <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/y_sample.csv", col_select=-1)
+colnames(y_sample) <- c("Label")
+
+# organize into sample df
+sample_df <- cbind(x_sample, y_sample)
+```
+
+See the EDA report for a more detailed analysis of the features of the dataset.
+
+## 1. Dimensionality Reduction
+
+In order to assess the appropriateness of anomaly detection on this dataset, we'll begin by attempting to perform dimensionality reduction. This will give us an idea of how separable the different labels are from one another.
+
+### PCA on non-categorical variables
+
+```{r PCA_calc}
+sample_pca <- sample_df %>% 
+  select(!`Fwd PSH Flags`:`Fwd URG Flags`&!`FIN Flag Count`:`ECE Flag Count`&!ports_1024_49151:Label) %>%
+  prcomp(scale=TRUE)
+```
+
+With the PCA calculation complete lets look at its' performance.
+
+```{r PCA_scree}
+fviz_eig(sample_pca)
+
+var_explained <- sample_pca$sdev^2/sum(sample_pca$sdev^2)
+
+tibble(`Principal Component`=1:5, `Cumulative Variance Explained`=cumsum(var_explained[1:5])) %>% 
+  kable(booktabs=T) %>% kable_classic(full_width=FALSE)
+```
+
+It looks like we're explaining close `r scales::percent(cumsum(var_explained[1:2]), 2)`` of the variation in the data through the first two principal components. Not great. Let's examine the composition of these two components before we visualize the data on this map.
+
+```{r PCA_anlys, warning=FALSE}
+fviz_pca_var(sample_pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+```
+
+The feature contributions don't readily yield an interpretation we can use for analysis. Still lets see the degree of separation we achieve by plotting these first two principal components.
+
+```{r pca_coord_plot}
+# extract coordinates of first two components
+pca_dim1 <- sample_pca$x[,1]
+pca_dim2 <- sample_pca$x[,2]
+
+# plot the observations in the reduced space
+ggplot(data=sample_df, aes(x=pca_dim1, y=pca_dim2, color=factor(Label))) +
+  geom_jitter(size=1.5, alpha=.6, pch=16) +
+  scale_color_manual(values = c("lightskyblue", viridis::inferno(40)[20:31])) +
+  theme_bw()
+```
+
+We see almost no separation between the malicious and benign traffic. This is not a good sign for the viability of anomaly detection algorithms for this problem. If malicious traffic was truly statistically anomalous, we would expect to see it appear as outliers in this reduced space.
+
+### TSNE
+
+tSNE is a different dimensionality reduction technique, which relies on stochastically manipulating a mapping of the original space to a lower dimensional space to achieve a high degree of clustering. tSNE results can not typically be used within a model, but it can be useful in showing weather or not the data can be separated in the first place. Given the failure of PCA, this is the natural next step. 
+
+```{r tsne_calc}
+library(Rtsne)
+
+set.seed(142)
+tSNE_fit <- sample_df %>% 
+  select(!`Fwd PSH Flags`:`Fwd URG Flags`&!`FIN Flag Count`:`ECE Flag Count`&!ports_1024_49151:Label) %>%
+  scale() %>% 
+  Rtsne(check_duplicates = FALSE)
+```
+
+```{r tsne_plot}
+tSNE_df <- tSNE_fit$Y %>% 
+  as.data.frame() %>%
+  rename(tSNE1="V1",
+         tSNE2="V2")
+
+ggplot(data=tSNE_df, aes(x = tSNE1, y = tSNE2, color = factor(sample_df$Label))) +
+    geom_jitter(size=1.5, alpha=.6, pch=16) +
+      scale_color_manual(values = c("lightskyblue", viridis::inferno(40)[20:31])) +
+      theme_bw()
+```
+
+The two-dimensional tSNE reduction obtains a high degree of separation between malicious and benign traffic. Many of the attack types were grouped into distinct clusters. This suggests that the different attack types can be successfully deduced from the data on hand (even when labels are not present).
+
+## 2. Model Performance
+
+Having established the possibility of obtaining class separation between benign and malicious traffic, we can explore the performance of different anomaly detection algorithms with some confidence that good performance is at leatst theoretically possible. The models were run in a separate python script (alongside some further developments this code is contained in the cloud back-end sub-directory) and then loaded below.
+
+```{r load_scores, message=FALSE}
+xStream_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/xStream_scores.csv")[-1] %>% rowMeans()
+iForest_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/iforest_scores.csv")[-1] %>% rowMeans()
+LOF_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/lof_scores.csv")[-1] %>% rowMeans()
+```
+
+Given that the theoretical use case of these models is to prioritize various observations, we are primarily concerned with the precision and recall of each model at a certain number of investigations. We refer to this as the *draw*, the number of top ranked anomalies investigated. With a predetermined draw, we can compare how many true threats were detected by each of the anomaly detection algorithms.
+
+Here we develop a few tools we can use for that analysis:
+
+```{r helper_fxns}
+anomaly_hist <- function(scores, title){
+  ggplot(data=sample_df) +
+    geom_histogram(aes(x=scores, fill=Label), position="stack") +
+        scale_fill_manual(values = c("lightskyblue", viridis::inferno(40)[20:31])) +
+        theme_bw() + labs(title = title) + theme(plot.title = element_text(hjust = 0.5))
+}
+
+top_k_label <- function(scores, title, full=FALSE){
+  summary_df <- tibble(label = sample_df$Label, anomaly_scores = scores) %>%
+    mutate(rank = min_rank(desc(anomaly_scores))) %>% 
+    group_by(label) %>% 
+    summarize(first_rank = min(rank),
+              max_score = max(anomaly_scores),
+              mean_score = mean(anomaly_scores),
+              median_score = median(anomaly_scores),
+              min_score = min(anomaly_scores),
+              sd_score = sd(anomaly_scores)) %>%
+    arrange(first_rank)
+  
+  if (full){
+    summary_df %>% 
+      kable(booktabs=T, caption=title) %>%
+      kable_classic(full_width=FALSE)
+  } else {
+    summary_df %>%
+      select(label, first_rank) %>% 
+      kable(booktabs=T, caption=title) %>%
+      kable_classic(full_width=FALSE)
+  }
+}
+
+draw_pr_curve <- function(scores, title){
+    # 1. Create a Data frame consisting of rank and binary labels
+    rank_df <- tibble(label = sample_df$Label, anomaly_scores = scores) %>%
+        mutate(rank = min_rank(desc(anomaly_scores)),
+               label = if_else(label=="BENIGN", 0, 1), .keep="none")
+    
+    # 2.A Get the total number of true postives in the data
+    total_true_pos <- sample_df %>% filter(Label != "BENIGN") %>% nrow()
+    
+    # 2.B Intitialize values
+    draw      <- 10 * 1:1000
+    precision <- 1:1000
+    recall    <- 1:1000
+    
+    # 2.c Iterate through all draws
+    for (i in 1:1000){
+      # get precision at draw
+      precision[i] <- rank_df %>% filter(rank <= draw[i]) %>% 
+                      summarize(precision = mean(label)) %>% .[[1]]
+      
+      # get recall at draw
+      drew_true_pos <- rank_df %>% filter(rank <= draw[i] & label==1) %>% nrow()
+      recall[i] <- drew_true_pos / total_true_pos
+      
+    }
+    
+    # 3. Display results as a faceted graph
+    tibble(draw, precision, recall) %>%
+      gather(key="key", value="value", -draw) %>%
+      ggplot() + 
+        geom_line(data = data.frame(draw=1:10000, key=rep("precision", 10000), value=rep(0.2, 10000)),
+                  aes(x=draw, y=value),
+                  lty=2, col="firebrick") +
+        geom_line(aes(x=draw, y=value), lwd=1) +
+        facet_grid(rows = vars(key)) + theme_bw() + 
+      labs(title = title) + theme(plot.title = element_text(hjust = 0.5))
+}
+```
+
+### xStream
+
+```{r xstream_scores, fig.height=8, fig.width=7}
+grid.arrange(anomaly_hist(xStream_avg_anomaly, "xStream Score Distribution"),
+             draw_pr_curve(xStream_avg_anomaly, "Performance Metrics")
+             )
+```
+
+Looking at the anomaly scores produced by xStream we see decent ability to distinguish true threats from benign traffic. With regard to performance metrics we see that precision maintains a high value of 50% for a good deal of time leading recall to quickly increase as well. Noticeably, algorithm does successfully identify a high number of bengin traffic as "non-anomalous", which leads to 100% recall of malicious content being identified at a draw of ~7500. 
+
+```{r xstream_scores_table}
+# top_k_label(xStream_avg_anomaly, "xStream")
+top_k_label(xStream_avg_anomaly, "xStream", full = TRUE)
+```
+
+In order to examine the results with a bit more granularity, we can explore how different attack types we detected by the model with the statistics presented above. Generally xStream seems to perform best against Denial of Service attacks, but performs poorly against web and bot attacks.
+
+### Isolation Forest
+
+```{r iForest_scores, fig.height=8, fig.width=7}
+grid.arrange(anomaly_hist(iForest_avg_anomaly, "iForest Score Distribution"),
+             draw_pr_curve(iForest_avg_anomaly, "Performance Metrics"))
+```
+
+Isolation Forest (iForest) achieves non-trivial prioritization of true threats but does not perform nearly as well as xStream. At almost any draw, xStream will have a higher precision and recall than iForest. Moreover, iForest has two additional significant problems: a large number of true threats which we scored as entirely non-anomalous (meaning they would not be checked until very late in the investigations) and worse than random results in the first 500 draw (meaning the top 500 ranked observations would be less likely to be true threats than if we randomly picked). This suggests that under certain circumstances, applying this model could degrade the performance of our system.
+
+```{r iForest_score_table}
+# top_k_label(iForest_avg_anomaly, "iForest")
+top_k_label(iForest_avg_anomaly, "iForest", full=TRUE)
+```
+
+Although in aggregate iForest does worse than xStream, the class-by-class view reveals that iForest may outperform in certain cases. Specifically, iForest identifies web and bot attacks much earlier (on the order of 1000's of draws) than xStream. This may be because iForest seems to have less clustering by attack type than xStream.
+
+### LOF
+
+```{r LOF_scores, fig.height=8, fig.width=7}
+grid.arrange(
+  anomaly_hist(LOF_avg_anomaly, "LOF Score Distribution") + scale_x_log10(),
+  draw_pr_curve(LOF_avg_anomaly, "Performance Metric")
+)
+```
+
+Quickly reviewing the diagnostic plots reveals that Local Outlier Factor (LOF) performs nearly as a random classifier on this dataset. Though there is a large front loading of true threats in highly ranked anomalies, after this period the precision drops to the base rate of true threats in the data.
+
+```{r LOF_score_table}
+#top_k_label(LOF_avg_anomaly, "LOF")
+top_k_label(LOF_avg_anomaly, "LOF", full=T)
+```
+
+A more granular examination does not give us any more confidence in applying LOF to this dataset and problem. 
