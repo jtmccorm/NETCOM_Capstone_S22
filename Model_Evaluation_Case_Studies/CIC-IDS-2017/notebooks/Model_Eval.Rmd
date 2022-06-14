@@ -1,6 +1,8 @@
 ---
 title: "Model Evaluation"
+subtitle: "Cyber Intrusion Data"
 author: "John T McCormick (jtmccorm)"
+date: "2/18/2022"
 output:
   html_document:
     df_print: paged
@@ -22,12 +24,12 @@ First, we'll load the data after its been cleaned and normalized.
 
 ```{r load_data, message=FALSE, warnings=F}
 # get feature names from previous sample
-x_names <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data/x_sample.csv", col_select = -1) %>% names()
+x_names <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/processed_1/x_sample.csv", col_select = -1) %>% names()
 
 # get new sample
-x_sample <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/x_sample.csv", col_select=-1) 
+x_sample <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/processed_2/x_sample.csv", col_select=-1) 
 colnames(x_sample) <- x_names
-y_sample <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/y_sample.csv", col_select=-1)
+y_sample <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/processed_2/y_sample.csv", col_select=-1)
 colnames(y_sample) <- c("Label")
 
 # organize into sample df
@@ -118,9 +120,9 @@ The two-dimensional tSNE reduction obtains a high degree of separation between m
 Having established the possibility of obtaining class separation between benign and malicious traffic, we can explore the performance of different anomaly detection algorithms with some confidence that good performance is at leatst theoretically possible. The models were run in a separate python script (alongside some further developments this code is contained in the cloud back-end sub-directory) and then loaded below.
 
 ```{r load_scores, message=FALSE}
-xStream_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/xStream_scores.csv")[-1] %>% rowMeans()
-iForest_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/iforest_scores.csv")[-1] %>% rowMeans()
-LOF_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/processed_data2/lof_scores.csv")[-1] %>% rowMeans()
+xStream_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/processed_2/xStream_scores.csv")[-1] %>% rowMeans()
+iForest_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/processed_2/iforest_scores.csv")[-1] %>% rowMeans()
+LOF_avg_anomaly <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/processed_2/lof_scores.csv")[-1] %>% rowMeans()
 ```
 
 Given that the theoretical use case of these models is to prioritize various observations, we are primarily concerned with the precision and recall of each model at a certain number of investigations. We refer to this as the *draw*, the number of top ranked anomalies investigated. With a predetermined draw, we can compare how many true threats were detected by each of the anomaly detection algorithms.

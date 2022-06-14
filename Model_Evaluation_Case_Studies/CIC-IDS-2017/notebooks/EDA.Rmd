@@ -17,7 +17,7 @@ library(kableExtra)
 ### Load the Data
 
 ```{r load, warning=FALSE, message=FALSE}
-thurs <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv") %>%
+thurs <- read_csv("./Model_Evaluation_Case_Studies/CIC-IDS-2017/data/raw/Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv") %>%
   mutate(Label = factor(iconv(Label, "latin1", "ASCII", sub=":")))
 ```
 
@@ -166,7 +166,7 @@ thurs %>% select(-c(`Fwd PSH Flags`, `Bwd PSH Flags`,
 By and large, the malicious communications do not represent statistical outliers for these datasets. Presumably due to deliberate obfuscation, most attacks resemble the norm and do not land on the far end of the spectrum for any these features.
 
 
-```{r principal_component_analysis, eval=FALSE}
+```{r principal_component_analysis}
 new_df <- thurs %>% select(-c(Label, `Fwd PSH Flags`, `Bwd PSH Flags`, 
          `Fwd URG Flags`, `Bwd URG Flags`, 
          `FIN Flag Count`, `SYN Flag Count`, 
