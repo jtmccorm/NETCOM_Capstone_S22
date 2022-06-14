@@ -1,0 +1,346 @@
+---
+subtitle: "Malicious/ Benign URLs (Kaggle)"
+author: "John T McCormick"
+title: Model Evaluation and Performance Analysis
+output:
+  html_document:
+    toc: yes
+    number_sections: yes
+    code_folding: show
+---
+
+```{r setup, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(kableExtra)
+library(factoextra)
+library(Rtsne)
+library(gridExtra)
+```
+
+# Exploratory Data Analysis
+
+> NETCOM DSD became specifically interested in applying anomaly detection methods to novel internet domains accessed by users on the Army's network in order to detect coordinated cyber attacks. We identified a labeled [dataset](https://www.kaggle.com/datasets/xwolf12/malicious-and-benign-websites) hosted on Kaggle to approximate this task. Many of the model evalutaion and performance analysis techniques were used for the previous case study (CIC-IDS-2017).
+
+Some data processing and cleaning was performed in a separate python script prior to the application of several anomaly detection algorithms. Here we'll begin by exploring the cleaned data set, where (among other things) all categorical variables have been One-Hot Encoded or normalized to $[0, 1]$.
+
+```{r load cleaned data, message=FALSE, warning=FALSE}
+# download whole dataset
+data <- read_csv("./Model_Evaluation_Case_Studies/Malicious_And_Benign_URLs/data/cleanURLdata_withScores.csv") %>%
+  select(-`...1`, -`Unnamed: 0`)
+
+# split into specific columns
+cat_features <- data[15:455]
+num_features <- data[1:13]
+label <- data[14] %>% 
+  mutate(Type = factor(Type, labels = c("Benign", "Malicious")))
+scores <- data[456:458]
+```
+
+## Feature Exploration
+
+Before we go much further in exploring this data, let's identify the base rate of malicious websites in the data. This will influence our assessment of anomaly detection algorithms.
+
+```{r malicious base rate}
+label %>% count(Type) %>%
+  mutate(percent = scales::percent(n/nrow(data), .01))
+```
+
+Unsurprisingly malicious websites are far from the majority, but in observed data these ratio may be even more skewed with threats making up less than a percent of all observations.
+
+In addition to exploring the class distributions let's assess how the numeric features correspond with the labels. Due to the heavily skewed distributions, all of these plots have been displayed on a log-scale.
+
+```{r analysis of numeric features, fig.height=8, fig.width=8, warning=FALSE, message=FALSE}
+bind_cols(num_features, label) %>%
+  gather(-Type, key="feature", value="value") %>%
+  ggplot(aes(x=value, fill=Type)) +
+    geom_histogram(bins= 25, col='black') +
+    scale_y_continuous(trans="pseudo_log",
+                       breaks = c(100, 10000, 1000000)) +
+    theme_bw() + scale_fill_manual(values = c("Malicious"="firebrick", "Benign"="lightskyblue")) +
+    facet_wrap(~feature, ncol=3)
+```
+
+None of the numeric features appear to directly reveal class. Let's do the same for the categorical features.
+
+```{r categorical features, warning=FALSE, message=FALSE}
+bind_cols(cat_features, label) %>%
+  gather(-Type, key="feature", value="value") %>%
+  group_by(feature, value) %>%
+  summarise(percent_malicious = scales::percent(sum(Type=='Malicious')/n(), 0.01)) %>%
+  arrange(desc(percent_malicious)) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  scroll_box(width = "500px", height = "500px")
+```
+
+Generally it seems we're getting much more signal from the categorical features, some of which very neatly correspond with one of the labels. This is promising for our application of anomaly detection. 
+
+## Dimensionality Reduction
+
+In order to evaluate the potential of anomaly detection algorithms, we'll attempt dimensionality reduction to see if in a transformed space the data can be linearly separated. Specifically we'll apply principal component analysis to the numeric data, which we found to have unclear correlations to the label, and tSNE to the whole dataset, in order to identify the extent to which separation is obtainable. 
+
+### Principal Component Analysis
+
+Though far from a perfect dimensionality reduction process, PCA is remarkably quick to implement and often yields easily interpretable results. The significant downside is that it can only be run on categorical variables, but this can help us understand the degree of information contained in that portion of the data. Let's start!
+
+```{r}
+pca <- num_features %>% prcomp(scale=T)
+
+fviz_eig(pca)
+```
+
+One benefit of PCA is the eigenvalues of the principal components (the basis vectors of the transformed space) correlate to the percentage of the variance explained by that reduced dimension. The Scree plot above and the table below show these percentages. 
+
+```{r}
+var_explained <- pca$sdev^2/sum(pca$sdev^2)
+
+tibble(`Principal Component`=1:5, `Cumulative Variance Explained`=cumsum(var_explained[1:5])) %>% 
+  kable(booktabs=T) %>% kable_classic(full_width=FALSE)
+```
+
+With only two basis vectors we can explain a 61.6% of the variance which is not insignificant! Let's plot each of the observations transformed into this new space and assess the separation between malicious and benign websites.                
+
+```{r}
+# extract coordinates of first two components
+pca_dim1 <- pca$x[,1]
+pca_dim2 <- pca$x[,2]
+
+# plot the observations in the reduced space
+cbind(pca_dim1, pca_dim2, label) %>%
+ggplot(aes(x=pca_dim1, y=pca_dim2, color=factor(Type))) +
+  geom_jitter(size=1.5, alpha=.6, pch=16) +
+  scale_y_continuous(trans="pseudo_log") + scale_x_continuous(trans="pseudo_log") +
+  scale_color_manual(values = c("Malicious"="firebrick", "Benign"="lightskyblue")) +
+  theme_bw()
+```
+
+Clearly, though PCA suggests the variance in the observations can be quickly explained using principal components, this variance does not translate to a division between malicious and benign observations. 
+
+### tSNE
+
+Though PCA did not deliver significant results, we still have other tools we can apply. tSNE (t-distributed stochastic neighbor embedding) is another dimensionality reduction technique which stochastically produces a nonlinear transformation of the space to achieve a high degree of clustering with the data. Here we'll apply it to our full data set.
+
+```{r tSNE calculation, cache=TRUE}
+set.seed(42)
+tSNE_fit <- cbind(num_features, cat_features) %>% 
+  scale() %>% 
+  Rtsne(check_duplicates = FALSE)
+```
+
+With the calculation complete, we can quickly visualize the results.
+
+```{r fig.height=5, fig.width=8}
+tSNE_df <- tSNE_fit$Y %>% 
+  as.data.frame() %>%
+  rename(tSNE1="V1",
+         tSNE2="V2")
+
+ggplot(data=tSNE_df, aes(x = tSNE1, y = tSNE2, color = factor(label$Type))) +
+    geom_jitter(size=1.5, alpha=.6, pch=16) +
+      scale_color_manual(values = c("Malicious"="firebrick", "Benign"="lightskyblue")) +
+      theme_bw()
+```
+
+We see some successful clustering of the classes with two dense clusters that correspond to malcicious traffic. However, there are many other malicious domains that are intermixed with the benign traffic. This suggests that this may be a more challenging data set than the previous case study.
+
+# Model Comparison
+
+Having established the possibility of obtaining some distinction between the malicious and benign classes we can confidently explore the performance of the anomaly detection algorithms knowing that some degree of success is theoretically possible. First, we'll build some helper functions to perform our analysis.
+
+```{r comparison helper fxns, class.source = 'fold-hide'}
+# Pulls ranked top-K anomalies from each score
+top_k_label <- function(scores, title, full=FALSE){
+  summary_df <- tibble(label = label$Type, anomaly_scores = scores) %>%
+    mutate(rank = min_rank(desc(anomaly_scores))) %>%
+    group_by(label) %>%
+    summarize(first_rank = min(rank),
+              max_score = max(anomaly_scores),
+              mean_score = mean(anomaly_scores),
+              median_score = median(anomaly_scores),
+              min_score = min(anomaly_scores),
+              sd_score = sd(anomaly_scores)) %>%
+    arrange(first_rank)
+
+  if (full){
+    summary_df %>%
+      kable(booktabs=T, caption=title) %>%
+      kable_classic(full_width=FALSE)
+  } else {
+    summary_df %>%
+      select(label, first_rank) %>%
+      kable(booktabs=T, caption=title) %>%
+      kable_classic(full_width=FALSE)
+  }
+}
+
+# Constructs histogram of Anomaly Score distributions
+anomaly_hist <- function(scores, title){
+  cbind(scores, label) %>%
+  ggplot() +
+    geom_histogram(aes(x=scores, fill=Type), position="stack", bins=25) +
+        scale_fill_manual(values = c("Malicious"="firebrick", "Benign"="lightskyblue")) +
+        theme_bw() + labs(title = title) + 
+    theme(plot.title = element_text(hjust = 0.5),
+          legend.position="bottom")
+}
+
+# Builds Precision-Recall Curve for set of Anomaly Scores
+draw_pr_curve <- function(scores, title){
+    # 1. Create a Data frame consisting of rank and binary labels
+    rank_df <- tibble(label = label$Type, anomaly_scores = scores) %>%
+        mutate(rank = min_rank(desc(anomaly_scores)),
+               label = if_else(label=="Benign", 0, 1), .keep="none")
+    
+    # 2.A Get the total number of true postives in the data
+    total_true_pos <- rank_df %>% filter(label == 1) %>% nrow()
+    
+    # 2.B Intitialize values
+    draw      <- 1:1781
+    precision <- 1:1781
+    recall    <- 1:1781
+    
+    # 2.c Iterate through all draws
+    for (i in 1:1781){
+      # get precision at draw
+      precision[i] <- rank_df %>% filter(rank <= draw[i]) %>% 
+                      summarize(precision = mean(label)) %>% .[[1]]
+      
+      # get recall at draw
+      drew_true_pos <- rank_df %>% filter(rank <= draw[i] & label==1) %>% nrow()
+      recall[i] <- drew_true_pos / total_true_pos
+      
+    }
+    
+    # 3. Display results as a faceted graph
+    tibble(draw, precision, recall) %>%
+      gather(key="key", value="value", -draw) %>%
+      ggplot() + 
+        geom_line(data = data.frame(draw=1:1781, key=rep("precision", 1781), value=rep(0.12, 1781)),
+                  aes(x=draw, y=value),
+                  lty=2, col="firebrick") +
+        geom_line(aes(x=draw, y=value), lwd=1) +
+        facet_grid(rows = vars(key)) + theme_bw() + 
+      labs(title = title) + theme(plot.title = element_text(hjust = 0.5))
+}
+
+# Function to determine the mean of the top two anomaly scores
+mean.top2 <- function(val1, val2, val3, harmonic=F){
+  x = cbind(val1, val2, val3)
+  
+  output <- 1:nrow(x)
+  for (r in 1:nrow(x)){
+    max_val <- sort(x[r,])[3]
+    snd_val <- sort(x[r,])[2]
+    
+    if (harmonic){
+      output[r] <- 2 * (max_val * snd_val)/(max_val + snd_val)
+    } else{
+      output[r] <- mean(c(max_val, snd_val))
+    }
+  }
+  
+  return(output)
+}
+
+# create a tibble which contains all the different scores
+trans_scores <- scores %>%
+  mutate(across(
+    .cols = everything(),
+    .fns = ~ (.x - mean(.x))/sd(.x))) %>%
+  mutate(
+    max_all = pmax(xStream_scores, iForest_scores, LOF_scores),
+    mean_all = (xStream_scores + iForest_scores + LOF_scores)/3,
+    harm_mean_all = 3 * (xStream_scores * iForest_scores * LOF_scores) / (xStream_scores*iForest_scores + xStream_scores*LOF_scores + iForest_scores*LOF_scores),
+    mean_top2 = mean.top2(.$xStream_scores, .$iForest_scores, .$LOF_scores),
+    harm_mean_top2 =  mean.top2(.$xStream_scores, .$iForest_scores, .$LOF_scores, harmonic = TRUE)
+    )
+```
+
+## Primary Algorithms {.tabset}
+
+Now, let's look at the performance of our primary algorithms Isolation Forest, Local Outlier Factor and xStream. For each we plot the distribution of the anomaly scores (with the true label indicated by color), performance metrics at various draws (the number of top observations to be investigated), and table containing summary statistics on the scores of each class.
+
+### Isolation Forest {-}
+
+```{r, fig.height=5, fig.width=8, class.source = 'fold-hide'}
+grid.arrange(
+  anomaly_hist(trans_scores$iForest_scores, "Anomaly Scores"),
+  draw_pr_curve(trans_scores$iForest_scores, "Performance Metrics by Draw"),
+  layout_matrix = rbind(c(1,2,2))
+)
+
+top_k_label(trans_scores$iForest_scores, "Score Statistics", T)
+```
+
+
+### Local Outlier Factor {-}
+
+```{r, fig.height=5, fig.width=8, class.source = 'fold-hide'}
+grid.arrange(
+  anomaly_hist(trans_scores$LOF_scores, "Anomaly Scores") + 
+    scale_y_continuous(trans="pseudo_log"),
+  draw_pr_curve(trans_scores$LOF_scores, "Performance Metrics by Draw"),
+  layout_matrix = rbind(c(1,2,2))
+)
+top_k_label(trans_scores$LOF_scores, "Score Statistics", T)
+```
+
+### xStream {-}
+
+```{r, fig.height=5, fig.width=8, class.source = 'fold-hide'}
+grid.arrange(
+  anomaly_hist(trans_scores$xStream_scores, "Anomaly Scores"),
+  draw_pr_curve(trans_scores$xStream_scores, "Performance Metrics by Draw"),
+  layout_matrix = rbind(c(1,2,2))
+)
+top_k_label(trans_scores$xStream_scores, "Score Statistics", T)
+```
+
+## {-}
+
+Contravening the results from the case study of the intrusion detection data set, we find that xStream performed far worse than the other algorithms. iForest seems to be performing the best (unsurprisingly because of the importance of categorical variables in the data) and obtains >90% recall half way through the data. LOF also performs decently well (especially in the early period) but loses performance as draw increases. xStream's poor performance is striking becuase it seems to performing hardly better than a *random classifier*.
+
+## Ensemble Methods {.tabset}
+
+### Max Score
+
+```{r}
+anomaly_hist(trans_scores$max_all, "Max Value Ensemble - Anomaly Score Distribution")
+top_k_label(trans_scores$max_all, "Max Value Ensemble - Score Statistics", T)
+draw_pr_curve(trans_scores$max_all, "Max Value Ensemble - Precision/Recall across Scores")
+```
+
+### Mean Value 
+
+```{r}
+anomaly_hist(trans_scores$mean_all, "Mean Value Ensemble - Anomaly Score Distribution")
+top_k_label(trans_scores$mean_all, "Mean Value Ensemble - Score Statistics", T)
+draw_pr_curve(trans_scores$mean_all, "Mean Value Ensemble - Precision/Recall across Scores")
+```
+
+### Harmonic Mean
+
+```{r}
+anomaly_hist(trans_scores$harm_mean_all, "Harmonic Mean Ensemble - Anomaly Score Distribution")
+top_k_label(trans_scores$harm_mean_all, "Harmonic Mean Ensemble - Score Statistics", T)
+draw_pr_curve(trans_scores$harm_mean_all, "Harmonic Mean Ensemble - Precision/Recall across Scores")
+```
+
+### Mean of Top 2 Scores
+
+```{r}
+anomaly_hist(trans_scores$mean_top2, "Top 2 Mean Ensemble - Anomaly Score Distribution")
+top_k_label(trans_scores$mean_top2, "Top 2 Mean Ensemble - Score Statistics", T)
+draw_pr_curve(trans_scores$mean_top2, "Top 2 Mean Ensemble - Precision/Recall across Scores")
+```
+
+### Harmonic Mean of Top 2 Scores
+
+```{r}
+anomaly_hist(trans_scores$harm_mean_top2, "Top 2 Harmonic Mean Ensemble - Anomaly Score Distribution")
+top_k_label(trans_scores$harm_mean_top2, "Top 2 Harmonic Mean Ensemble - Score Statistics", T)
+draw_pr_curve(trans_scores$harm_mean_top2, "Top 2 Harmonic Mean Ensemble - Precision/Recall across Scores")
+```
+
+
+# Explainability Analysis
