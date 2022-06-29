@@ -305,42 +305,48 @@ Contravening the results from the case study of the intrusion detection data set
 ### Max Score
 
 ```{r}
-anomaly_hist(trans_scores$max_all, "Max Value Ensemble - Anomaly Score Distribution")
+grid.arrange(
+  anomaly_hist(trans_scores$max_all, "Anomaly Scores"),
+  draw_pr_curve(trans_scores$max_all, "Performance Metrics By Draw"),
+  layout_matrix = rbind(c(1,2,2))
+)
 top_k_label(trans_scores$max_all, "Max Value Ensemble - Score Statistics", T)
-draw_pr_curve(trans_scores$max_all, "Max Value Ensemble - Precision/Recall across Scores")
 ```
 
 ### Mean Value 
 
 ```{r}
-anomaly_hist(trans_scores$mean_all, "Mean Value Ensemble - Anomaly Score Distribution")
+grid.arrange(
+  anomaly_hist(trans_scores$mean_all, "Anomaly Scorres"),
+  draw_pr_curve(trans_scores$mean_all, "Performance Metrics By Draw"),
+  layout_matrix = rbind(c(1,2,2))
+)
 top_k_label(trans_scores$mean_all, "Mean Value Ensemble - Score Statistics", T)
-draw_pr_curve(trans_scores$mean_all, "Mean Value Ensemble - Precision/Recall across Scores")
 ```
 
 ### Harmonic Mean
 
 ```{r}
-anomaly_hist(trans_scores$harm_mean_all, "Harmonic Mean Ensemble - Anomaly Score Distribution")
+grid.arrange(
+  anomaly_hist(trans_scores$harm_mean_all, "Anomaly Scores"),
+  draw_pr_curve(trans_scores$harm_mean_all, "Performance Metrics By Draw"),
+  layout_matrix = rbind(c(1,2,2))
+)
 top_k_label(trans_scores$harm_mean_all, "Harmonic Mean Ensemble - Score Statistics", T)
-draw_pr_curve(trans_scores$harm_mean_all, "Harmonic Mean Ensemble - Precision/Recall across Scores")
 ```
 
 ### Mean of Top 2 Scores
 
 ```{r}
-anomaly_hist(trans_scores$mean_top2, "Top 2 Mean Ensemble - Anomaly Score Distribution")
+grid.arrange(
+  anomaly_hist(trans_scores$mean_top2, "Anomaly Scores"),
+  draw_pr_curve(trans_scores$mean_top2, "Performance Metrics By Draw"),
+  layout_matrix = rbind(c(1,2,2))
+)
+  
 top_k_label(trans_scores$mean_top2, "Top 2 Mean Ensemble - Score Statistics", T)
-draw_pr_curve(trans_scores$mean_top2, "Top 2 Mean Ensemble - Precision/Recall across Scores")
 ```
 
-### Harmonic Mean of Top 2 Scores
+## {-}
 
-```{r}
-anomaly_hist(trans_scores$harm_mean_top2, "Top 2 Harmonic Mean Ensemble - Anomaly Score Distribution")
-top_k_label(trans_scores$harm_mean_top2, "Top 2 Harmonic Mean Ensemble - Score Statistics", T)
-draw_pr_curve(trans_scores$harm_mean_top2, "Top 2 Harmonic Mean Ensemble - Precision/Recall across Scores")
-```
-
-
-# Explainability Analysis
+Taking the max and mean of all the scores seem to be our best options for ensembling. Mean scoring is likely superior due to an improved recall curve. More sophisticated (ie. complicated) ensemble approaches seem to fail because the give too much weight to lower performing models. If the end-user was capable of performing a weighted average of the various models, more sophisticated techniques may have greater utility.
