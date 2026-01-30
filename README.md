@@ -18,7 +18,7 @@ for the data. We then present these results and explanations in a web-interface 
 Finally, we encapsulate our work within a sample risk framework to show how it can contribute to
 cyber risk management practices both on the front line and across the Command.
 
-**See the deployed app [here](https://jtmccorm.shinyapps.io/NETCOM_AD_Prototype/)!**
+**See the deployed app [here](https://jtmccorm.shinyapps.io/Anomaly_Scoring_for_NIDS/)!**
 
 Integral to development of the final product was a series of case studies we conducted to determine the utility of anomaly detection in the cyber security space. Ultimately we found that though anomaly detection algorithms were successful in the space, it was difficult to determine without labeled data which model would perform best. This analysis informed our decision to ensemble our anomaly detection in the final deployed product and provide dynamic weighting controls to the end-user. Moving forward NETCOM will be able to dynamically evaluate the performance of anomaly detection and how it relates with their overall risk mitigation strategy.
 
